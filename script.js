@@ -28,7 +28,7 @@ const DOMAIN_AKUN = "@keisha.local"; // username "admin" -> admin@keisha.local
 
 /* Halaman yang boleh dibuka tiap peran (yang pertama = halaman awal) */
 const AKSES = {
-  admin:    ["laporan", "stok"],
+  admin:    ["laporan", "stok", "kas"],
   karyawan: ["kas"],
 };
 
@@ -44,6 +44,12 @@ const KATEGORI_KAS = {
 
 /* Kategori yang mengurangi stok barang saat dicatat */
 const KATEGORI_BARANG = ["Penjualan Barang", "Penjualan Sparepart"];
+
+/* Pengeluaran yang hanya boleh dicatat admin (pemilik). Aturan yang sama dipasang di database. */
+const KATEGORI_KHUSUS_ADMIN = ["Gaji", "Pembelian Stok"];
+
+/* Kategori pengeluaran yang menambah stok barang (admin) */
+const KATEGORI_PEMBELIAN = "Pembelian Stok";
 
 /* Format tanggal yang disimpan: YYYY-MM-DD (tahun 4 digit) */
 const POLA_TANGGAL = /^\d{4}-\d{2}-\d{2}$/;
@@ -202,6 +208,7 @@ function dariBarisTransaksi(r) {
     kategori: r.kategori || "",
     keterangan: r.keterangan || "",
     nominal: Number(r.nominal) || 0,
+    hpp: Number(r.hpp) || 0, // modal barang yang terjual (untuk hitung laba)
   };
   if (r.stok_id) { t.stokId = r.stok_id; t.qty = Number(r.qty) || 0; }
   return t;
@@ -451,6 +458,16 @@ function urutTerbaru(data) {
     .map((x) => x.t);
 }
 
+/* Laba = omset - modal barang yang terjual - biaya (gaji, operasional, lainnya).
+   Pembelian Stok bukan biaya: uangnya berubah jadi barang, modalnya dihitung saat barang itu terjual. */
+function hitungLaba(data) {
+  const omset = jumlahPerJenis("Pemasukan", data);
+  const modal = data.filter((t) => t.jenis === "Pemasukan").reduce((n, t) => n + (Number(t.hpp) || 0), 0);
+  const biaya = data.filter((t) => t.jenis === "Pengeluaran" && t.kategori !== KATEGORI_PEMBELIAN)
+    .reduce((n, t) => n + (Number(t.nominal) || 0), 0);
+  return { modal: modal, biaya: biaya, laba: omset - modal - biaya };
+}
+
 function renderLaporan() {
   const lap = dataLaporan();
   const data = lap.data;
@@ -459,7 +476,7 @@ function renderLaporan() {
   const keluar = jumlahPerJenis("Pengeluaran", data);
   $("lap-omset").textContent = formatRupiah(masuk);
   $("lap-keluar").textContent = formatRupiah(keluar);
-  $("lap-laba").textContent = formatRupiah(masuk - keluar);
+  $("lap-laba").textContent = formatRupiah(hitungLaba(data).laba);
   $("lap-cetak-judul").textContent = "Laporan Penjualan - Keisha Komputer | Periode: " + lap.label;
 
   const rekap = $("lap-rekap");
@@ -663,17 +680,25 @@ function eksporExcel() {
   const rekap = rekapPerHari(lap.data);
   const totMasuk = jumlahPerJenis("Pemasukan", lap.data);
   const totKeluar = jumlahPerJenis("Pengeluaran", lap.data);
+  const laba = hitungLaba(lap.data);
 
   const sheetRekap = {
     nama: "Rekap Per Hari",
-    lebar: [18, 18, 18, 18],
+    lebar: [26, 18, 18, 18],
     baris: [
       [B("Laporan Penjualan - Keisha Komputer")],
       [T("Periode: " + lap.label)],
       [],
       [B("Tanggal"), B("Pemasukan"), B("Pengeluaran"), B("Selisih")],
     ].concat(rekap.map((r) => [SEL.tanggal(r.tanggal), Rp(r.masuk), Rp(r.keluar), Rp(r.selisih)]))
-     .concat([[B("TOTAL"), SEL.rupiahTebal(totMasuk), SEL.rupiahTebal(totKeluar), SEL.rupiahTebal(totMasuk - totKeluar)]]),
+     .concat([[B("TOTAL"), SEL.rupiahTebal(totMasuk), SEL.rupiahTebal(totKeluar), SEL.rupiahTebal(totMasuk - totKeluar)]])
+     .concat([
+       [],
+       [T("Omset"), Rp(totMasuk)],
+       [T("Modal barang terjual"), Rp(laba.modal)],
+       [T("Biaya (tanpa beli stok)"), Rp(laba.biaya)],
+       [B("LABA BERSIH"), SEL.rupiahTebal(laba.laba)],
+     ]),
   };
 
   const sheetDetail = {
@@ -723,6 +748,7 @@ function bersihkanBackup(obj) {
       nominal: Number(t.nominal),
     };
     if (t.jam) baru.jam = String(t.jam);
+    if (t.hpp !== undefined && t.hpp !== null && isFinite(Number(t.hpp))) baru.hpp = Number(t.hpp);
     if (t.stokId !== undefined && t.stokId !== null && isFinite(Number(t.qty))) { baru.stokId = t.stokId; baru.qty = Number(t.qty); }
     transaksi.push(baru);
   }
@@ -918,21 +944,30 @@ function pesanKas(teks, error) {
 function isiKategoriKas() {
   const pilih = $("kas-kategori");
   pilih.innerHTML = "";
-  KATEGORI_KAS[$("kas-jenis").value].forEach((k) => {
-    const o = document.createElement("option");
-    o.value = k;
-    o.textContent = k;
-    pilih.appendChild(o);
-  });
+  const admin = sesi && sesi.role === "admin";
+  KATEGORI_KAS[$("kas-jenis").value]
+    .filter((k) => admin || KATEGORI_KHUSUS_ADMIN.indexOf(k) === -1) // Gaji & Pembelian Stok hanya admin
+    .forEach((k) => {
+      const o = document.createElement("option");
+      o.value = k;
+      o.textContent = k;
+      pilih.appendChild(o);
+    });
 }
 
-/* ----- Penjualan barang: pilih barang dari stok ----- */
-function penjualanBarang() {
-  return $("kas-jenis").value === "Pemasukan" && KATEGORI_BARANG.indexOf($("kas-kategori").value) !== -1;
+/* ----- Barang dari stok -----
+   "jual": penjualan barang/sparepart, stok berkurang
+   "beli": pembelian stok oleh admin, stok bertambah */
+function jenisBarang() {
+  const jenis = $("kas-jenis").value;
+  const kategori = $("kas-kategori").value;
+  if (jenis === "Pemasukan" && KATEGORI_BARANG.indexOf(kategori) !== -1) return "jual";
+  if (jenis === "Pengeluaran" && kategori === KATEGORI_PEMBELIAN && sesi && sesi.role === "admin") return "beli";
+  return null;
 }
 
 function aturFieldBarang() {
-  const tampil = penjualanBarang();
+  const tampil = jenisBarang() !== null;
   $("kas-barang-wrap").hidden = !tampil;
   $("kas-jumlah-wrap").hidden = !tampil;
   if (ketOtomatis && $("kas-keterangan").value === ketOtomatis) $("kas-keterangan").value = "";
@@ -947,7 +982,8 @@ function isiPilihanBarang() {
   const pilih = $("kas-barang");
   const sebelumnya = pilih.value;
   pilih.innerHTML = "";
-  if (!penjualanBarang()) return;
+  const mode = jenisBarang();
+  if (!mode) return;
 
   const kosong = document.createElement("option");
   kosong.value = "";
@@ -957,8 +993,9 @@ function isiPilihanBarang() {
   ambilStok().forEach((b) => {
     const o = document.createElement("option");
     o.value = String(b.id);
-    o.textContent = b.nama + " (stok " + b.stok + ") - " + formatRupiah(b.hargaJual);
-    if (b.stok <= 0) o.disabled = true;
+    /* Penjualan: tampilkan harga jual. Pembelian: tampilkan harga beli */
+    o.textContent = b.nama + " (stok " + b.stok + ") - " + formatRupiah(mode === "beli" ? b.hargaBeli : b.hargaJual);
+    if (mode === "jual" && b.stok <= 0) o.disabled = true; // barang habis tidak bisa dijual, tapi bisa dibeli
     pilih.appendChild(o);
   });
 
@@ -987,17 +1024,20 @@ function hitungBarang() {
   }
 
   const jumlah = Math.max(1, Math.floor(Number($("kas-jumlah").value) || 1));
-  $("kas-nominal").value = item.hargaJual * jumlah;
+  const beli = jenisBarang() === "beli";
+  $("kas-nominal").value = (beli ? item.hargaBeli : item.hargaJual) * jumlah;
 
-  const baru = item.nama + " x" + jumlah;
+  const baru = (beli ? "Beli " : "") + item.nama + " x" + jumlah;
   if (ket.value === "" || ket.value === ketOtomatis) ket.value = baru;
   ketOtomatis = baru;
 }
 
 function renderKas() {
   const tanggal = $("kas-tanggal").value || hariIni(); // kolom tanggal sedang dikosongkan: anggap hari ini
+  const admin = sesi && sesi.role === "admin";
   const nama = namaKaryawan();
-  const data = ambilTransaksi().filter((t) => t.tanggal === tanggal && t.karyawan === nama);
+  /* Admin melihat semua transaksi pada tanggal itu (untuk dicek & dikoreksi); karyawan hanya miliknya */
+  const data = ambilTransaksi().filter((t) => t.tanggal === tanggal && (admin || t.karyawan === nama));
   const masuk = jumlahPerJenis("Pemasukan", data);
   const keluar = jumlahPerJenis("Pengeluaran", data);
 
@@ -1008,8 +1048,9 @@ function renderKas() {
   $("kas-keluar").textContent = formatRupiah(keluar);
   $("kas-selisih").textContent = formatRupiah(masuk - keluar);
 
+  const judul = admin ? "Transaksi" : "Transaksi Saya";
   $("kas-judul-riwayat").textContent =
-    tanggal === hariIni() ? "Transaksi Saya Hari Ini" : "Transaksi Saya (" + formatTanggal(tanggal) + ")";
+    tanggal === hariIni() ? judul + " Hari Ini" : judul + " (" + formatTanggal(tanggal) + ")";
 
   const tbody = $("kas-daftar");
   tbody.innerHTML = "";
@@ -1022,7 +1063,7 @@ function renderKas() {
     tr.appendChild(td(t.jam || "-"));
     tr.appendChild(td(t.jenis, t.jenis === "Pemasukan" ? "jenis-masuk" : "jenis-keluar"));
     tr.appendChild(td(t.kategori || "-"));
-    tr.appendChild(td(t.keterangan || "-"));
+    tr.appendChild(td((t.keterangan || "-") + (admin ? " · " + (t.karyawan || "-") : ""))); // admin: tampilkan siapa pencatatnya
     tr.appendChild(td(formatRupiah(t.nominal)));
     const tdAksi = document.createElement("td");
     tdAksi.appendChild(buatTombol("Hapus", "btn-hapus", () => hapusKas(t.id)));
@@ -1033,6 +1074,8 @@ function renderKas() {
 
 function mulaiKas() {
   setTanggalHariIni();
+  /* Karyawan hanya mencatat untuk hari ini (database juga memaksa tanggal hari ini); admin bebas */
+  $("kas-tanggal").readOnly = !(sesi && sesi.role === "admin");
   isiKategoriKas();
   aturFieldBarang();
   pesanKas("");
@@ -1057,13 +1100,14 @@ async function simpanKas(e) {
   /* Tahun lebih dari 4 digit (salah ketik) merusak laporan & membuat backup ditolak */
   if (!POLA_TANGGAL.test(tanggal)) return pesanKas("Tanggal tidak valid. Periksa kembali tahunnya.", true);
 
-  /* Penjualan dari stok: stok dikurangi di database bersamaan dengan transaksi */
-  const item = penjualanBarang() ? barangTerpilih() : null;
+  /* Barang dari stok: jual (stok berkurang) / beli (stok bertambah), diproses di database bersamaan dengan transaksi */
+  const mode = jenisBarang();
+  const item = mode ? barangTerpilih() : null;
   let qty = null;
   if (item) {
     qty = Number($("kas-jumlah").value);
     if (!Number.isInteger(qty) || qty < 1) return pesanKas("Jumlah barang harus bilangan bulat minimal 1.", true);
-    if (qty > item.stok) return pesanKas("Stok " + item.nama + " tidak cukup (sisa " + item.stok + ").", true);
+    if (mode === "jual" && qty > item.stok) return pesanKas("Stok " + item.nama + " tidak cukup (sisa " + item.stok + ").", true);
   }
 
   sedangKirimKas = true;
@@ -1081,7 +1125,7 @@ async function simpanKas(e) {
   sedangKirimKas = false;
 
   if (error) {
-    if (item && /Stok tidak cukup/i.test(String(error.message))) {
+    if (item && mode === "jual" && /Stok tidak cukup/i.test(String(error.message))) {
       /* Stok sudah berubah di perangkat lain: ambil angka terbaru */
       try { await muatData(); } catch (err) { /* abaikan */ }
       isiPilihanBarang();
@@ -1096,7 +1140,7 @@ async function simpanKas(e) {
   if (baris) dataTransaksi.push(dariBarisTransaksi(baris));
   if (item) {
     const b = dataStok.find((x) => x.id === item.id);
-    if (b) b.stok = Math.max(0, b.stok - qty);
+    if (b) b.stok = mode === "beli" ? b.stok + qty : Math.max(0, b.stok - qty);
   }
 
   sedangSimpan = true; // supaya event "reset" tidak menimpa pesan & tanggal
@@ -1107,17 +1151,20 @@ async function simpanKas(e) {
   aturFieldBarang();
   renderKas();
   $("kas-keterangan").focus();
-  pesanKas(item ? "Transaksi disimpan. Stok " + item.nama + " berkurang " + qty + "." : "Transaksi berhasil disimpan.");
+  pesanKas(item
+    ? "Transaksi disimpan. Stok " + item.nama + (mode === "beli" ? " bertambah " : " berkurang ") + qty + "."
+    : "Transaksi berhasil disimpan.");
   jadwalMuatUlang();
 }
 
 async function hapusKas(id) {
   const t = dataTransaksi.find((x) => x.id === id);
   if (!t || sedangDihapus.has(id)) return;
+  const pembelian = t.jenis === "Pengeluaran"; // pembelian stok: menghapusnya mengurangi stok lagi
   if (!confirm('Hapus transaksi "' + t.keterangan + '" (' + formatRupiah(t.nominal) + ")?" +
-      (t.stokId !== undefined ? "\nStok barang akan dikembalikan." : ""))) return;
+      (t.stokId !== undefined ? (pembelian ? "\nStok barang akan dikurangi lagi." : "\nStok barang akan dikembalikan.") : ""))) return;
 
-  /* Di database: transaksi dihapus dan stok dikembalikan sekaligus */
+  /* Di database: transaksi dihapus dan stok disesuaikan sekaligus */
   sedangDihapus.add(id);
   const { error } = await kirim(db.rpc("hapus_transaksi", { p_id: id }));
   sedangDihapus.delete(id);
@@ -1126,7 +1173,8 @@ async function hapusKas(id) {
   dataTransaksi = dataTransaksi.filter((x) => x.id !== id);
   if (t.stokId !== undefined) {
     const item = dataStok.find((b) => b.id === t.stokId);
-    if (item) item.stok += Number(t.qty) || 0;
+    const qty = Number(t.qty) || 0;
+    if (item) item.stok = pembelian ? Math.max(0, item.stok - qty) : item.stok + qty;
   }
   renderKas();
   isiPilihanBarang();
