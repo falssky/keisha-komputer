@@ -1,0 +1,828 @@
+/* ==========================================================
+   KEISHA KOMPUTER - STYLE
+   Daftar isi:
+     1. Reset & variabel warna
+     2. Halaman login
+     3. Header
+     4. Layout & sidebar
+     5. Komponen bersama (kartu, panel, tabel, form, tombol)
+     6. Admin - Laporan Penjualan
+     7. Admin - Stok & Inventori
+     8. Karyawan - Input Kas Harian
+     9. Responsif
+   ========================================================== */
+
+/* ===== 1. RESET & VARIABEL ===== */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+:root {
+  --bg-main: #001020;
+  --bg-sidebar: #00101e;
+  --bg-header: #0b1c30;
+  --bg-card: #0b1c30;
+  --bg-panel: #0b1c30;
+  --bg-active: #0f2a44;
+  --bg-btn: #00101e;
+  --accent: #38d4ff;
+  --text: #ffffff;
+  --text-muted: #b4bfcc;
+  --green: #138a0c;
+  --red: #a80000;
+  --blue: #0000a8;
+  --line: #16233a;
+  --primary: #2563ff;
+}
+
+body {
+  font-family: "Inter", "Segoe UI", Arial, sans-serif;
+  background: var(--bg-main);
+  color: var(--text);
+}
+
+/* ===== 2. HALAMAN LOGIN ===== */
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 16px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 417px;
+  padding: 44px 32px 32px;
+  border-radius: 14px;
+  background: #ffffff;
+  text-align: center;
+}
+
+.login-avatar {
+  width: 114px;
+  height: 114px;
+  margin: 0 auto 14px;
+  border-radius: 50%;
+  /* Logo: taruh file "logo.png" di folder yang sama. Abu-abu = cadangan bila file tidak ada */
+  background: #d9d9d9 url("logo.png") center / cover no-repeat;
+}
+
+.login-title {
+  margin-bottom: 30px;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.2px;
+  color: #000;
+}
+
+.login-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.login-fields input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #b9b9b9;
+  border-radius: 6px;
+  background: #fff;
+  color: #000;
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.login-fields input::placeholder {
+  color: #9a9a9a;
+}
+
+.login-fields input:focus {
+  height: 36px;
+  border: 2px solid #1a8fe3;
+  box-shadow: 0 0 0 1px rgba(26, 143, 227, 0.15);
+}
+
+.login-error {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #c62828;
+}
+
+.login-btn {
+  width: 100%;
+  height: 38px;
+  margin-top: 16px;
+  border: none;
+  border-radius: 6px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: filter 0.2s;
+}
+
+.login-btn:hover {
+  filter: brightness(1.12);
+}
+
+.login-card.gagal {
+  animation: getar 0.35s;
+}
+
+@keyframes getar {
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
+/* ===== 3. HEADER ===== */
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-main);
+}
+
+/* Ukuran dikunci agar sama persis di semua halaman */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 66px;
+  width: 100%;
+  height: 66px;
+  min-height: 66px;
+  max-height: 66px;
+  padding: 0 20px;
+  overflow: hidden;
+  background: var(--bg-header);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 10px;
+}
+
+.avatar {
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  /* Logo: sama dengan halaman login (logo.png) */
+  background: #d9d9d9 url("logo.png") center / cover no-repeat;
+}
+
+.brand-text h1 {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.brand-text p {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 13px;
+  white-space: nowrap;
+  color: var(--accent);
+}
+
+.btn-logout {
+  flex: 0 0 102px;
+  width: 102px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: var(--bg-btn);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 28px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-logout:hover {
+  background: #05263f;
+}
+
+/* ===== 4. LAYOUT & SIDEBAR ===== */
+.layout {
+  display: flex;
+  flex: 1;
+}
+
+.sidebar {
+  flex-shrink: 0;
+  width: 198px;
+  min-width: 198px;
+  padding: 10px;
+  background: var(--bg-sidebar);
+}
+
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 34px;
+  padding: 0 10px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  font-size: 14px;
+  white-space: nowrap;
+  color: var(--text);
+  text-decoration: none;
+  transition: background 0.2s, color 0.2s;
+}
+
+.menu-item svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.menu-item:hover {
+  background: var(--bg-active);
+}
+
+.menu-item.active {
+  background: var(--bg-active);
+  color: var(--accent);
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+}
+
+.view-admin {
+  padding: 12px 14px 24px 14px;
+}
+
+/* ===== 5. KOMPONEN BERSAMA ===== */
+
+/* ----- Kartu ringkasan ----- */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  margin-bottom: 18px;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  height: 66px;
+  padding: 0 8px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.card::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 11px;
+  height: 100%;
+  border-radius: 0 8px 8px 0;
+}
+
+.card-green::after { background: var(--green); }
+.card-red::after   { background: var(--red); }
+.card-blue::after  { background: var(--blue); }
+
+.card-label {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.card-value {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+/* ----- Judul bagian & panel ----- */
+.section h2 {
+  margin-bottom: 10px;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.panel {
+  min-height: 80px;
+  margin-bottom: 22px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-panel);
+}
+
+/* ----- Tabel ----- */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.table thead th {
+  padding: 8px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  text-align: left;
+  color: var(--text-muted);
+  background: #0c1a2e;
+  border-bottom: 1px solid var(--line);
+}
+
+.table tbody td {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text);
+  border-bottom: 1px solid var(--line);
+  word-wrap: break-word;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.table .empty-row td,
+.table .empty-row:hover td {
+  padding: 26px 10px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: transparent;
+}
+
+/* ----- Form ----- */
+.form-card {
+  padding: 14px 16px 16px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+
+.form-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.form-title .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--primary);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px 10px;
+}
+
+.field.span-2 {
+  grid-column: span 2;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.field input,
+.field select {
+  width: 100%;
+  height: 36px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-sidebar);
+  color: var(--text);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.field select {
+  cursor: pointer;
+}
+
+.field input[type="date"] {
+  color-scheme: dark;
+}
+
+.field input:focus,
+.field select:focus {
+  border-color: var(--primary);
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* ----- Tombol ----- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 12px;
+  border: none;
+  border-radius: 5px;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: filter 0.2s;
+}
+
+.btn:hover {
+  filter: brightness(1.15);
+}
+
+.btn-primary {
+  min-width: 110px;
+  background: var(--primary);
+}
+
+.btn-secondary {
+  background: #4b5063;
+}
+
+/* ===== 6. ADMIN - LAPORAN PENJUALAN ===== */
+.table-detail thead th,
+.table-detail tbody td {
+  text-align: center;
+}
+
+/* ===== 7. ADMIN - STOK & INVENTORI ===== */
+.page-title {
+  margin-bottom: 14px;
+}
+
+.page-title h2 {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.page-title p {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.stock-card {
+  min-height: 190px;
+  padding: 10px 14px 14px;
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 62%;
+  height: 30px;
+  padding: 0 8px;
+  margin-bottom: 10px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--bg-sidebar);
+  color: var(--text-muted);
+}
+
+.search-box svg {
+  flex-shrink: 0;
+}
+
+.search-box input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+
+.search-box input::placeholder {
+  color: var(--text-muted);
+}
+
+.table-stok thead th {
+  background: transparent;
+}
+
+.stok-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-mini {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--bg-sidebar);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.btn-mini:hover {
+  background: var(--bg-active);
+}
+
+.stok-rendah {
+  color: #ff6b6b;
+  font-weight: 700;
+}
+
+.btn-hapus {
+  padding: 3px 9px;
+  border: none;
+  border-radius: 4px;
+  background: var(--red);
+  color: var(--text);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.btn-hapus:hover {
+  filter: brightness(1.2);
+}
+
+/* ===== 8. KARYAWAN - INPUT KAS HARIAN ===== */
+.view-kas {
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 36px 24px 40px;
+}
+
+.kas-title {
+  margin-bottom: 22px;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.view-kas .cards {
+  margin-bottom: 22px;
+}
+
+.kas-form {
+  padding: 18px 20px 20px;
+  margin-bottom: 0;
+}
+
+.kas-form .form-grid {
+  gap: 14px 18px;
+}
+
+.kas-form .form-actions {
+  margin-top: 20px;
+}
+
+.kas-pesan {
+  margin-left: 6px;
+  font-size: 12px;
+  color: #4ade80;
+}
+
+.kas-pesan.error {
+  color: #ff6b6b;
+}
+
+.kas-riwayat {
+  margin-top: 28px;
+}
+
+.kas-riwayat .panel {
+  margin-bottom: 0;
+}
+
+.table-kas thead th:nth-child(5),
+.table-kas tbody td:nth-child(5) {
+  text-align: right;
+}
+
+.table-kas thead th:last-child,
+.table-kas tbody td:last-child {
+  width: 90px;
+  text-align: center;
+}
+
+.table-kas thead th:first-child,
+.table-kas tbody td:first-child {
+  width: 90px;
+}
+
+.table-kas td.jenis-masuk  { color: #4ade80; font-weight: 600; }
+.table-kas td.jenis-keluar { color: #ff6b6b; font-weight: 600; }
+
+/* ===== 8b. BAR FILTER, EKSPOR, BACKUP ===== */
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.toolbar-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.toolbar .field {
+  min-width: 160px;
+}
+
+.toolbar-aksi {
+  display: flex;
+  gap: 8px;
+}
+
+.toolbar-aksi .btn {
+  height: 36px;
+}
+
+.sidebar-data {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.sidebar-label {
+  padding: 0 10px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.menu-aksi {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cetak-judul {
+  display: none;
+}
+
+/* ===== 8c. CETAK / SIMPAN PDF ===== */
+@media print {
+  @page { margin: 14mm; }
+
+  body,
+  .app {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .header,
+  .sidebar,
+  .toolbar {
+    display: none !important;
+  }
+
+  .view-admin {
+    padding: 0;
+  }
+
+  .cetak-judul {
+    display: block;
+    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #000;
+  }
+
+  .cards {
+    gap: 12px;
+  }
+
+  .card,
+  .panel {
+    background: #fff !important;
+    border: 1px solid #999 !important;
+    break-inside: avoid;
+  }
+
+  .card::after {
+    display: none;
+  }
+
+  .card-label,
+  .table thead th {
+    color: #333 !important;
+  }
+
+  .card-value,
+  .section h2,
+  .table tbody td {
+    color: #000 !important;
+  }
+
+  .table thead th {
+    background: #eee !important;
+    border-bottom: 1px solid #999 !important;
+  }
+
+  .table tbody td {
+    border-bottom: 1px solid #ccc !important;
+  }
+
+  .table tr {
+    break-inside: avoid;
+  }
+}
+
+/* ===== 9. RESPONSIF ===== */
+@media (max-width: 768px) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    min-width: 0;
+    display: flex;
+    gap: 6px;
+  }
+
+  .cards {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .field.span-2 {
+    grid-column: auto;
+  }
+
+  .search-box {
+    width: 100%;
+  }
+
+  .view-kas {
+    padding: 24px 14px 30px;
+  }
+}

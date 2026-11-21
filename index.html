@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keisha Komputer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- =====================================================
+       HALAMAN LOGIN
+       ===================================================== -->
+  <main class="login-page" id="halaman-login" hidden>
+    <form class="login-card" id="form-login" autocomplete="off" novalidate>
+      <div class="login-avatar"></div>
+      <h1 class="login-title">KEISHA KOMPUTER</h1>
+
+      <div class="login-fields">
+        <input type="text" id="login-username" placeholder="Username" aria-label="Username">
+        <input type="password" id="login-password" placeholder="Password" aria-label="Password">
+      </div>
+
+      <p class="login-error" id="login-error" role="alert" hidden></p>
+      <button type="submit" class="login-btn">Masuk</button>
+    </form>
+  </main>
+
+  <!-- =====================================================
+       APLIKASI (setelah login)
+       ===================================================== -->
+  <div class="app" id="aplikasi" hidden>
+
+    <!-- HEADER (dipakai semua halaman) -->
+    <header class="header">
+      <div class="brand">
+        <div class="avatar"></div>
+        <div class="brand-text">
+          <h1>Keisha Komputer</h1>
+          <p>Jual &amp; Service komputer</p>
+        </div>
+      </div>
+      <button class="btn-logout" id="btn-logout" type="button">Logout</button>
+    </header>
+
+    <div class="layout">
+
+      <!-- SIDEBAR (hanya untuk admin) -->
+      <aside class="sidebar" id="sidebar" hidden>
+        <nav>
+          <a href="#laporan" class="menu-item" data-nav="laporan">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <rect x="3" y="12" width="4" height="9"/>
+              <rect x="10" y="3" width="4" height="18"/>
+              <rect x="17" y="8" width="4" height="13"/>
+            </svg>
+            <span>Laporan Penjualan</span>
+          </a>
+          <a href="#stok" class="menu-item" data-nav="stok">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/>
+              <path d="M3 7l9 5 9-5M12 12v10"/>
+            </svg>
+            <span>Stok &amp; Inventori</span>
+          </a>
+        </nav>
+
+        <div class="sidebar-data">
+          <p class="sidebar-label">Data</p>
+          <button type="button" class="menu-item menu-aksi" id="btn-backup">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg>
+            <span>Backup Data</span>
+          </button>
+          <button type="button" class="menu-item menu-aksi" id="btn-restore">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21V9M7 14l5-5 5 5M4 4h16"/></svg>
+            <span>Restore Data</span>
+          </button>
+          <input type="file" id="file-restore" accept=".json,application/json" hidden>
+        </div>
+      </aside>
+
+      <main class="content">
+
+        <!-- ===== ADMIN: LAPORAN PENJUALAN ===== -->
+        <section class="view view-admin" id="view-laporan" hidden>
+
+          <div class="toolbar">
+            <div class="toolbar-filter">
+              <div class="field">
+                <label for="lap-periode">Periode</label>
+                <select id="lap-periode">
+                  <option value="semua">Semua</option>
+                  <option value="hari">Hari Ini</option>
+                  <option value="minggu">7 Hari Terakhir</option>
+                  <option value="bulan">Bulan Ini</option>
+                  <option value="kustom">Pilih Tanggal</option>
+                </select>
+              </div>
+              <div class="field" id="lap-dari-wrap" hidden>
+                <label for="lap-dari">Dari</label>
+                <input type="date" id="lap-dari">
+              </div>
+              <div class="field" id="lap-sampai-wrap" hidden>
+                <label for="lap-sampai">Sampai</label>
+                <input type="date" id="lap-sampai">
+              </div>
+            </div>
+            <div class="toolbar-aksi">
+              <button type="button" class="btn btn-secondary" id="btn-excel">Ekspor Excel</button>
+              <button type="button" class="btn btn-secondary" id="btn-pdf">Cetak / PDF</button>
+            </div>
+          </div>
+
+          <p class="cetak-judul" id="lap-cetak-judul"></p>
+
+          <div class="cards">
+            <div class="card card-green">
+              <span class="card-label">Omset (Total Pemasukan)</span>
+              <strong class="card-value" id="lap-omset">Rp 0</strong>
+            </div>
+            <div class="card card-red">
+              <span class="card-label">Total Pengeluaran</span>
+              <strong class="card-value" id="lap-keluar">Rp 0</strong>
+            </div>
+            <div class="card card-blue">
+              <span class="card-label">Laba Bersih</span>
+              <strong class="card-value" id="lap-laba">Rp 0</strong>
+            </div>
+          </div>
+
+          <div class="section">
+            <h2>Rekap Per Hari</h2>
+            <div class="panel">
+              <table class="table table-rekap">
+                <thead>
+                  <tr><th>Tanggal</th><th>Pemasukan</th><th>Pengeluaran</th><th>Selisih</th></tr>
+                </thead>
+                <tbody id="lap-rekap"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="section">
+            <h2>Detail Transaksi</h2>
+            <div class="panel">
+              <table class="table table-detail">
+                <thead>
+                  <tr><th>Tanggal</th><th>Karyawan</th><th>Jenis</th><th>Kategori</th><th>Keterangan</th><th>Nominal</th></tr>
+                </thead>
+                <tbody id="lap-detail"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== ADMIN: STOK & INVENTORI ===== -->
+        <section class="view view-admin" id="view-stok" hidden>
+
+          <div class="page-title">
+            <h2>Stok Toko</h2>
+            <p>Kelola kuantitas ketersediaan barang dan tarif harga penjualan</p>
+          </div>
+
+          <div class="form-card">
+            <h3 class="form-title"><span class="dot"></span>Form Input Barang / Jasa Baru</h3>
+            <form id="form-stok" autocomplete="off">
+              <div class="form-grid">
+                <div class="field span-2">
+                  <label for="stok-nama">Nama Barang</label>
+                  <input type="text" id="stok-nama" required>
+                </div>
+                <div class="field">
+                  <label for="stok-kategori">Kategori</label>
+                  <input type="text" id="stok-kategori">
+                </div>
+                <div class="field">
+                  <label for="stok-jumlah">Jumlah Stok</label>
+                  <input type="number" id="stok-jumlah" min="0" required>
+                </div>
+                <div class="field">
+                  <label for="stok-beli">Harga Beli (Rp)</label>
+                  <input type="number" id="stok-beli" min="0" required>
+                </div>
+                <div class="field">
+                  <label for="stok-jual">Harga Jual (Rp)</label>
+                  <input type="number" id="stok-jual" min="0" required>
+                </div>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">
+                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                  Tambah Barang
+                </button>
+                <button type="reset" class="btn btn-secondary">Reset</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="stock-card">
+            <div class="search-box">
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+              <input type="text" id="stok-cari" placeholder="cari sparepart, laptop, atau service...">
+            </div>
+            <table class="table table-stok">
+              <thead>
+                <tr><th>Nama Barang</th><th>Kategori</th><th>Stok</th><th>Harga Beli</th><th>Harga Jual</th><th>Aksi</th></tr>
+              </thead>
+              <tbody id="stok-daftar"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ===== KARYAWAN: INPUT KAS HARIAN ===== -->
+        <section class="view view-kas" id="view-kas" hidden>
+
+          <h2 class="kas-title">Input Kas Harian</h2>
+
+          <div class="cards">
+            <div class="card card-green">
+              <span class="card-label" id="kas-label-masuk">Pemasukan Hari Ini</span>
+              <strong class="card-value" id="kas-masuk">Rp 0</strong>
+            </div>
+            <div class="card card-red">
+              <span class="card-label" id="kas-label-keluar">Pengeluaran Hari Ini</span>
+              <strong class="card-value" id="kas-keluar">Rp 0</strong>
+            </div>
+            <div class="card card-blue">
+              <span class="card-label">Selisih</span>
+              <strong class="card-value" id="kas-selisih">Rp 0</strong>
+            </div>
+          </div>
+
+          <div class="form-card kas-form">
+            <form id="form-kas" autocomplete="off">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="kas-tanggal">Tanggal</label>
+                  <input type="date" id="kas-tanggal" required>
+                </div>
+                <div class="field">
+                  <label for="kas-jenis">Jenis</label>
+                  <select id="kas-jenis" required>
+                    <option value="Pemasukan">Pemasukan</option>
+                    <option value="Pengeluaran">Pengeluaran</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="kas-kategori">Kategori</label>
+                  <select id="kas-kategori" required></select>
+                </div>
+                <div class="field span-2" id="kas-barang-wrap" hidden>
+                  <label for="kas-barang">Barang dari Stok</label>
+                  <select id="kas-barang"></select>
+                </div>
+                <div class="field" id="kas-jumlah-wrap" hidden>
+                  <label for="kas-jumlah">Jumlah</label>
+                  <input type="number" id="kas-jumlah" min="1" step="1" value="1">
+                </div>
+                <div class="field span-2">
+                  <label for="kas-keterangan">Keterangan</label>
+                  <input type="text" id="kas-keterangan" placeholder="Contoh: Service laptop Asus - ganti thermal paste" required>
+                </div>
+                <div class="field">
+                  <label for="kas-nominal">Nominal (Rp)</label>
+                  <input type="number" id="kas-nominal" min="1" placeholder="0" required>
+                </div>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">
+                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                  Simpan Transaksi
+                </button>
+                <button type="reset" class="btn btn-secondary">Reset</button>
+                <span class="kas-pesan" id="kas-pesan" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+          </div>
+
+          <div class="section kas-riwayat">
+            <h2 id="kas-judul-riwayat">Transaksi Saya Hari Ini</h2>
+            <div class="panel">
+              <table class="table table-kas">
+                <thead>
+                  <tr><th>Jam</th><th>Jenis</th><th>Kategori</th><th>Keterangan</th><th>Nominal</th><th>Aksi</th></tr>
+                </thead>
+                <tbody id="kas-daftar"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
