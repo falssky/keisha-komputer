@@ -1,8 +1,9 @@
 /* ==========================================================
    KEISHA KOMPUTER - SCRIPT
    Daftar isi:
-     1. Pengaturan (akun, hak akses, kunci penyimpanan)
+     1. Pengaturan (Supabase, hak akses, kategori)
      2. Fungsi bantu
+     2b. Data dari Supabase (muat & pembaruan otomatis)
      3. Login, logout, dan perpindahan halaman
      4. Admin - Laporan Penjualan (filter periode)
      5. Ekspor Excel, Cetak/PDF, Backup & Restore
@@ -10,19 +11,20 @@
      7. Karyawan - Input Kas Harian
      8. Mulai aplikasi
 
-   CATATAN KEAMANAN: ini login sisi-browser (tanpa server).
-   Password di bawah bisa dilihat siapa pun yang membuka file ini.
-   Cocok untuk belajar / satu komputer toko. Untuk sistem sungguhan,
-   pindahkan pengecekan password ke server/database.
+   DATABASE: Supabase (project "sistemkasir").
+   - Kunci di bawah adalah kunci PUBLIK, memang boleh terlihat di sini.
+     Data dilindungi Row Level Security di database:
+       admin    : semua laporan, kelola stok, backup & restore
+       karyawan : lihat stok, catat & hapus transaksinya sendiri
+   - Akun dibuat di Dashboard Supabase > Authentication > Users dengan
+     email <username>@keisha.local (contoh: admin@keisha.local).
+     Di halaman login cukup ketik username-nya saja, misalnya "admin".
    ========================================================== */
 
 /* ===== 1. PENGATURAN ===== */
-
-/* GANTI password di bawah ini sebelum dipakai! */
-const AKUN = {
-  admin:    { password: "admin123",    role: "admin" },
-  karyawan: { password: "karyawan123", role: "karyawan" },
-};
+const SUPABASE_URL = "https://crzwbshhdbykvhohdouk.supabase.co";
+const SUPABASE_KEY = "sb_publishable_di_W3KjljZTMemZweWj6qA_dcZ20CX_"; // kunci publik
+const DOMAIN_AKUN = "@keisha.local"; // username "admin" -> admin@keisha.local
 
 /* Halaman yang boleh dibuka tiap peran (yang pertama = halaman awal) */
 const AKSES = {
@@ -30,9 +32,10 @@ const AKSES = {
   karyawan: ["kas"],
 };
 
-const KEY_SESI = "keisha_session";        // sessionStorage (hilang saat tab ditutup)
-const KEY_TRANSAKSI = "keisha_transaksi"; // localStorage
-const KEY_STOK = "keisha_stok";           // localStorage
+/* Data versi lama (sebelum Supabase) yang mungkin masih tersimpan di browser ini */
+const KEY_TRANSAKSI_LAMA = "keisha_transaksi";
+const KEY_STOK_LAMA = "keisha_stok";
+const KEY_DATA_LAMA_SELESAI = "keisha_data_lama_selesai";
 
 const KATEGORI_KAS = {
   Pemasukan: ["Service Komputer", "Penjualan Barang", "Penjualan Sparepart", "Lainnya"],
@@ -41,6 +44,19 @@ const KATEGORI_KAS = {
 
 /* Kategori yang mengurangi stok barang saat dicatat */
 const KATEGORI_BARANG = ["Penjualan Barang", "Penjualan Sparepart"];
+
+/* Format tanggal yang disimpan: YYYY-MM-DD (tahun 4 digit) */
+const POLA_TANGGAL = /^\d{4}-\d{2}-\d{2}$/;
+
+/* Koneksi Supabase. Sesi login disimpan di sessionStorage: hilang saat tab ditutup */
+const db = (function () {
+  if (!window.supabase) return null; // library gagal dimuat (mis. tidak ada internet)
+  let simpanan;
+  try { simpanan = window.sessionStorage; } catch (e) { simpanan = undefined; }
+  return window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { storage: simpanan, persistSession: true, autoRefreshToken: true },
+  });
+})();
 
 /* ===== 2. FUNGSI BANTU ===== */
 const $ = (id) => document.getElementById(id);
@@ -63,21 +79,8 @@ function tulis(storage, kunci, nilai) {
   }
 }
 
-const ambilTransaksi = () => { const d = baca(localStorage, KEY_TRANSAKSI, []); return Array.isArray(d) ? d : []; };
-const simpanTransaksi = (d) => tulis(localStorage, KEY_TRANSAKSI, d);
-const ambilStok = () => { const d = baca(localStorage, KEY_STOK, []); return Array.isArray(d) ? d : []; };
-const simpanStok = (d) => tulis(localStorage, KEY_STOK, d);
-
 function buatId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-}
-
-/* Transaksi lama (dari versi sebelumnya) belum punya id: beri id sekali saja */
-function siapkanData() {
-  const data = ambilTransaksi();
-  let berubah = false;
-  data.forEach((t) => { if (!t.id) { t.id = buatId(); berubah = true; } });
-  if (berubah) simpanTransaksi(data);
 }
 
 function formatRupiah(n) {
@@ -147,34 +150,164 @@ function unduh(namaFile, blob) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/* ===== 3. LOGIN, LOGOUT, PERPINDAHAN HALAMAN ===== */
-let sesi = null;
+/* Pesan error yang mudah dimengerti */
+function teksGagal(error) {
+  const pesan = String((error && error.message) || error || "");
+  if (/fetch|network|load failed/i.test(pesan)) return "Tidak bisa terhubung ke server. Periksa koneksi internet.";
+  return pesan || "Terjadi kesalahan.";
+}
 
-function bacaSesi() {
-  const s = baca(sessionStorage, KEY_SESI, null);
-  return s && AKSES[s.role] ? s : null;
+/* ===== 2b. DATA DARI SUPABASE =====
+   Data disalin ke memori (dataStok, dataTransaksi) supaya tampilan tetap cepat,
+   lalu diperbarui otomatis saat ada perubahan dari perangkat lain (Realtime). */
+let dataStok = [];
+let dataTransaksi = [];
+const ambilTransaksi = () => dataTransaksi;
+const ambilStok = () => dataStok;
+
+let operasiBerjalan = 0; // jumlah simpanan yang belum selesai
+let versiLokal = 0;      // naik setiap ada perubahan dari perangkat ini
+
+/* Jalankan permintaan ke Supabase; tidak pernah melempar error */
+async function kirim(permintaan) {
+  versiLokal++;
+  operasiBerjalan++;
+  try {
+    return await permintaan;
+  } catch (e) {
+    return { data: null, error: e };
+  } finally {
+    operasiBerjalan--;
+  }
+}
+
+function dariBarisStok(r) {
+  return {
+    id: r.id,
+    nama: r.nama,
+    kategori: r.kategori || "",
+    stok: Number(r.stok) || 0,
+    hargaBeli: Number(r.harga_beli) || 0,
+    hargaJual: Number(r.harga_jual) || 0,
+  };
+}
+
+function dariBarisTransaksi(r) {
+  const t = {
+    id: r.id,
+    tanggal: r.tanggal,
+    jam: r.jam || "",
+    karyawan: r.karyawan || "",
+    jenis: r.jenis,
+    kategori: r.kategori || "",
+    keterangan: r.keterangan || "",
+    nominal: Number(r.nominal) || 0,
+  };
+  if (r.stok_id) { t.stokId = r.stok_id; t.qty = Number(r.qty) || 0; }
+  return t;
+}
+
+/* Supabase membatasi 1000 baris per permintaan: ambil bertahap sampai habis */
+async function ambilSemuaBaris(tabel) {
+  const UKURAN = 1000;
+  const hasil = [];
+  for (let dari = 0; ; dari += UKURAN) {
+    const { data, error } = await db.from(tabel).select("*")
+      .order("created_at", { ascending: true }).order("id", { ascending: true })
+      .range(dari, dari + UKURAN - 1);
+    if (error) throw error;
+    hasil.push(...data);
+    if (data.length < UKURAN) return hasil;
+  }
+}
+
+/* Muat semua data yang boleh dilihat akun ini (diatur RLS di database).
+   Hasil false = ada perubahan dari perangkat ini saat memuat, coba lagi nanti. */
+async function muatData() {
+  const versi = versiLokal;
+  const [stok, transaksi] = await Promise.all([ambilSemuaBaris("stok"), ambilSemuaBaris("transaksi")]);
+  if (versi !== versiLokal || operasiBerjalan > 0) return false;
+  dataStok = stok.map(dariBarisStok);
+  dataTransaksi = transaksi.map(dariBarisTransaksi);
+  return true;
+}
+
+/* Tampilkan ulang halaman yang sedang dibuka (isian form yang sedang diketik tidak direset) */
+function tampilkanUlang() {
+  if (!sesi) return;
+  if (!$("view-laporan").hidden) renderLaporan();
+  if (!$("view-stok").hidden) renderStok();
+  if (!$("view-kas").hidden) { renderKas(); isiPilihanBarang(); }
+}
+
+let jedaMuat = null;
+function jadwalMuatUlang() {
+  clearTimeout(jedaMuat);
+  jedaMuat = setTimeout(async () => {
+    if (!sesi) return;
+    if (operasiBerjalan > 0) return jadwalMuatUlang(); // tunggu simpanan yang masih berjalan
+    let berhasil = false;
+    try { berhasil = await muatData(); } catch (e) { return; } // gagal: tetap pakai data terakhir
+    if (!berhasil) return jadwalMuatUlang();
+    tampilkanUlang();
+  }, 400);
+}
+
+/* Realtime: muat ulang bila stok/transaksi diubah dari perangkat lain */
+let saluran = null;
+function mulaiRealtime() {
+  hentikanRealtime();
+  saluran = db.channel("data-kasir")
+    .on("postgres_changes", { event: "*", schema: "public", table: "stok" }, jadwalMuatUlang)
+    .on("postgres_changes", { event: "*", schema: "public", table: "transaksi" }, jadwalMuatUlang)
+    .subscribe((status) => { if (status === "SUBSCRIBED") jadwalMuatUlang(); }); // termasuk setelah koneksi putus
+}
+
+function hentikanRealtime() {
+  if (saluran) { db.removeChannel(saluran); saluran = null; }
+}
+
+/* ===== 3. LOGIN, LOGOUT, PERPINDAHAN HALAMAN ===== */
+let sesi = null; // { user, nama, role }
+
+/* Profil akun yang sedang login (dibaca dari tabel profil, hanya baris miliknya) */
+async function ambilProfil() {
+  const { data, error } = await db.from("profil").select("username, nama, peran").maybeSingle();
+  if (error) throw error;
+  return data && AKSES[data.peran] ? { user: data.username, nama: data.nama, role: data.peran } : null;
 }
 
 function namaKaryawan() {
-  const u = sesi && sesi.user ? sesi.user : "karyawan";
-  return u.charAt(0).toUpperCase() + u.slice(1);
+  return sesi && sesi.nama ? sesi.nama : "Karyawan";
 }
 
-function tampilkanLogin() {
+function tampilkanLogin(pesan) {
   sesi = null;
   $("aplikasi").hidden = true;
   $("halaman-login").hidden = false;
   $("login-password").value = "";
-  $("login-error").hidden = true;
+  $("login-error").textContent = pesan || "";
+  $("login-error").hidden = !pesan;
   $("login-username").focus();
 }
 
 function tampilkanAplikasi() {
-  siapkanData();
   $("halaman-login").hidden = true;
   $("aplikasi").hidden = false;
   $("sidebar").hidden = sesi.role !== "admin";
   pindahHalaman();
+  mulaiRealtime();
+  if (sesi.role === "admin") setTimeout(tawarkanDataLama, 300);
+}
+
+/* Bersihkan semua data akun di memori (logout / sesi habis) */
+function akhiriSesi() {
+  hentikanRealtime();
+  clearTimeout(jedaMuat);
+  versiLokal++; // abaikan hasil muat data yang masih berjalan
+  sesi = null;
+  dataStok = [];
+  dataTransaksi = [];
 }
 
 /* Halaman yang diminta lewat alamat (#laporan, #stok, #kas), dicek hak akses */
@@ -198,7 +331,9 @@ function pindahHalaman() {
   if (halaman === "kas") mulaiKas();
 }
 
-function prosesLogin(e) {
+let sedangLogin = false;
+
+async function prosesLogin(e) {
   e.preventDefault();
   const form = $("form-login");
   const user = $("login-username").value.trim().toLowerCase();
@@ -214,28 +349,47 @@ function prosesLogin(e) {
   }
 
   if (!user || !pass) return gagal("Username dan password wajib diisi.");
+  if (!db) return gagal("Gagal memuat Supabase. Periksa koneksi internet lalu muat ulang halaman.");
+  if (sedangLogin) return; // tombol Masuk diklik berkali-kali
+  sedangLogin = true;
 
-  const akun = Object.prototype.hasOwnProperty.call(AKUN, user) ? AKUN[user] : null;
-  if (!akun || akun.password !== pass) {
-    $("login-password").value = "";
-    $("login-password").focus();
-    return gagal("Username atau password salah.");
+  try {
+    const email = user.indexOf("@") === -1 ? user + DOMAIN_AKUN : user;
+    const { error } = await db.auth.signInWithPassword({ email: email, password: pass });
+    if (error) {
+      if (error.status === 429) return gagal("Terlalu banyak percobaan. Tunggu sebentar lalu coba lagi.");
+      if (error.code === "email_not_confirmed") return gagal("Akun belum dikonfirmasi. Buat ulang akun dengan mencentang Auto Confirm User.");
+      if (error.status === 400) {
+        $("login-password").value = "";
+        $("login-password").focus();
+        return gagal("Username atau password salah.");
+      }
+      return gagal(teksGagal(error));
+    }
+
+    const profil = await ambilProfil();
+    if (!profil) {
+      await db.auth.signOut({ scope: "local" });
+      return gagal("Akun ini belum punya hak akses.");
+    }
+    await muatData();
+    sesi = profil;
+  } catch (err) {
+    return gagal(teksGagal(err));
+  } finally {
+    sedangLogin = false;
   }
 
-  if (!tulis(sessionStorage, KEY_SESI, { user: user, role: akun.role })) {
-    return gagal("Browser memblokir penyimpanan sesi. Aktifkan penyimpanan lalu coba lagi.");
-  }
-
-  sesi = { user: user, role: akun.role };
   $("login-username").value = "";
   try { history.replaceState(null, "", "#" + AKSES[sesi.role][0]); } catch (err) { location.hash = AKSES[sesi.role][0]; }
   tampilkanAplikasi();
 }
 
 function logout() {
-  try { sessionStorage.removeItem(KEY_SESI); } catch (e) {}
+  akhiriSesi();
   try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { location.hash = ""; }
   tampilkanLogin();
+  if (db) db.auth.signOut({ scope: "local" }).catch(() => {}); // "local": perangkat lain tetap login
 }
 
 /* ===== 4. ADMIN - LAPORAN PENJUALAN ===== */
@@ -540,7 +694,8 @@ function cetakPdf() {
 }
 
 /* ----- Backup & Restore ----- */
-function backupData() {
+async function backupData() {
+  try { await muatData(); } catch (e) { return alert("Gagal mengambil data terbaru: " + teksGagal(e)); }
   const isi = {
     app: "keisha-komputer",
     versi: 1,
@@ -553,12 +708,11 @@ function backupData() {
 
 function bersihkanBackup(obj) {
   if (!obj || obj.app !== "keisha-komputer" || !Array.isArray(obj.transaksi) || !Array.isArray(obj.stok)) return null;
-  const pola = /^\d{4}-\d{2}-\d{2}$/;
   const transaksi = [];
   const stok = [];
 
   for (const t of obj.transaksi) {
-    if (!t || !pola.test(t.tanggal) || ["Pemasukan", "Pengeluaran"].indexOf(t.jenis) === -1 || !isFinite(Number(t.nominal))) return null;
+    if (!t || !POLA_TANGGAL.test(t.tanggal) || ["Pemasukan", "Pengeluaran"].indexOf(t.jenis) === -1 || !isFinite(Number(t.nominal))) return null;
     const baru = {
       id: typeof t.id === "string" && t.id ? t.id : buatId(),
       tanggal: t.tanggal,
@@ -574,10 +728,12 @@ function bersihkanBackup(obj) {
   }
 
   for (const b of obj.stok) {
-    if (!b || typeof b.nama !== "string" || !b.nama.trim() || !isFinite(Number(b.stok))) return null;
+    if (!b || !isFinite(Number(b.stok))) return null;
+    /* Barang tanpa nama tidak membuat seluruh backup ditolak: beri nama pengganti */
+    const nama = typeof b.nama === "string" ? b.nama.trim() : "";
     stok.push({
       id: b.id !== undefined && b.id !== null ? b.id : Date.now() + Math.random(),
-      nama: b.nama,
+      nama: nama || "(Tanpa nama)",
       kategori: String(b.kategori || ""),
       stok: Math.max(0, Number(b.stok)),
       hargaBeli: Number(b.hargaBeli) || 0,
@@ -590,25 +746,61 @@ function bersihkanBackup(obj) {
 function restoreData(file) {
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = function () {
+  reader.onload = async function () {
     let bersih = null;
     try { bersih = bersihkanBackup(JSON.parse(reader.result)); } catch (e) { bersih = null; }
     if (!bersih) {
       alert("File backup tidak valid. Pilih file .json hasil Backup Data dari website ini.");
       return;
     }
-    const ok = confirm("Data saat ini akan DIGANTI dengan isi backup:\n" +
+    const ok = confirm("Semua data di database akan DIGANTI dengan isi backup:\n" +
       bersih.transaksi.length + " transaksi dan " + bersih.stok.length + " barang.\n\nLanjutkan?");
     if (!ok) return;
-    if (!simpanTransaksi(bersih.transaksi) || !simpanStok(bersih.stok)) {
-      alert("Gagal menyimpan. Penyimpanan browser diblokir atau penuh.");
+    /* Dijalankan di database sebagai satu kesatuan: gagal = data lama tetap utuh */
+    const { error } = await kirim(db.rpc("restore_data", { p_stok: bersih.stok, p_transaksi: bersih.transaksi }));
+    if (error) {
+      alert("Restore gagal: " + teksGagal(error) + "\nData di database tidak berubah.");
       return;
     }
+    try { await muatData(); } catch (e) { /* tampilkan data terakhir */ }
     pindahHalaman();
     alert("Restore berhasil.");
   };
   reader.onerror = function () { alert("File tidak bisa dibaca."); };
   reader.readAsText(file);
+}
+
+/* ----- Data versi lama (localStorage) -----
+   Sebelum memakai Supabase, data disimpan di browser. Bila masih ada, tawarkan
+   unduh sebagai file backup agar bisa dimasukkan ke database lewat Restore Data. */
+function tawarkanDataLama() {
+  if (!sesi || sesi.role !== "admin") return;
+  let penyimpanan;
+  try { penyimpanan = window.localStorage; } catch (e) { return; }
+  if (baca(penyimpanan, KEY_DATA_LAMA_SELESAI, false)) return;
+
+  let transaksi = baca(penyimpanan, KEY_TRANSAKSI_LAMA, []);
+  let stok = baca(penyimpanan, KEY_STOK_LAMA, []);
+  if (!Array.isArray(transaksi)) transaksi = [];
+  if (!Array.isArray(stok)) stok = [];
+  if (transaksi.length === 0 && stok.length === 0) return;
+
+  const unduhSekarang = confirm("Ditemukan data lama di browser ini yang belum ada di database:\n" +
+    transaksi.length + " transaksi dan " + stok.length + " barang.\n\n" +
+    "Unduh sebagai file backup? Setelah itu masukkan ke database lewat menu Restore Data.");
+  if (unduhSekarang) {
+    const isi = { app: "keisha-komputer", versi: 1, dibuat: new Date().toISOString(), transaksi: transaksi, stok: stok };
+    unduh("backup-data-lama-keisha-" + hariIni() + ".json", new Blob([JSON.stringify(isi, null, 2)], { type: "application/json" }));
+    tulis(penyimpanan, KEY_DATA_LAMA_SELESAI, true);
+    return;
+  }
+  if (confirm("Hapus data lama dari browser ini? Data yang dihapus tidak bisa dikembalikan.\n\n" +
+      "Pilih Batal untuk menyimpannya dulu (pertanyaan ini muncul lagi saat login berikutnya).")) {
+    try {
+      penyimpanan.removeItem(KEY_TRANSAKSI_LAMA);
+      penyimpanan.removeItem(KEY_STOK_LAMA);
+    } catch (e) { /* abaikan */ }
+  }
 }
 
 /* ===== 6. ADMIN - STOK & INVENTORI ===== */
@@ -652,43 +844,71 @@ function renderStok() {
   });
 }
 
-function ubahStok(id, delta) {
-  const data = ambilStok();
-  const item = data.find((b) => b.id === id);
+async function ubahStok(id, delta) {
+  const item = dataStok.find((b) => b.id === id);
   if (!item) return;
-  item.stok = Math.max(0, item.stok + delta);
-  simpanStok(data);
+  item.stok = Math.max(0, item.stok + delta); // tampil langsung, database menyusul
   renderStok();
+  /* Dihitung di database (stok + selisih) agar klik beruntun / perangkat lain tidak saling menimpa */
+  const { error } = await kirim(db.rpc("ubah_stok", { p_id: id, p_selisih: delta }));
+  if (error) alert("Gagal mengubah stok: " + teksGagal(error));
+  jadwalMuatUlang();
 }
 
-function hapusBarang(id) {
-  const item = ambilStok().find((b) => b.id === id);
-  if (!item) return;
+const sedangDihapus = new Set(); // cegah tombol Hapus diproses dua kali
+
+async function hapusBarang(id) {
+  const item = dataStok.find((b) => b.id === id);
+  if (!item || sedangDihapus.has(id)) return;
   if (!confirm('Hapus "' + item.nama + '" dari daftar?')) return;
-  simpanStok(ambilStok().filter((b) => b.id !== id));
+  sedangDihapus.add(id);
+  const { error } = await kirim(db.from("stok").delete().eq("id", id));
+  sedangDihapus.delete(id);
+  if (error) return alert("Gagal menghapus barang: " + teksGagal(error));
+  dataStok = dataStok.filter((b) => b.id !== id);
   renderStok();
+  jadwalMuatUlang();
 }
 
-function tambahBarang(e) {
+let sedangTambahBarang = false;
+
+async function tambahBarang(e) {
   e.preventDefault();
-  const data = ambilStok();
-  data.push({
-    id: Date.now() + Math.random(),
-    nama: $("stok-nama").value.trim(),
+  const nama = $("stok-nama").value.trim();
+  if (!nama) {
+    /* Nama berisi spasi saja: kosongkan agar browser memunculkan peringatan "wajib diisi" */
+    $("stok-nama").value = "";
+    $("stok-nama").reportValidity();
+    return;
+  }
+  if (sedangTambahBarang) return; // tombol diklik dua kali: jangan tersimpan dobel
+  sedangTambahBarang = true;
+  const { data, error } = await kirim(db.from("stok").insert({
+    nama: nama,
     kategori: $("stok-kategori").value.trim(),
     stok: Number($("stok-jumlah").value) || 0,
-    hargaBeli: Number($("stok-beli").value) || 0,
-    hargaJual: Number($("stok-jual").value) || 0,
-  });
-  simpanStok(data);
+    harga_beli: Number($("stok-beli").value) || 0,
+    harga_jual: Number($("stok-jual").value) || 0,
+  }).select().single());
+  sedangTambahBarang = false;
+  if (error) return alert("Gagal menyimpan barang: " + teksGagal(error));
+
+  dataStok.push(dariBarisStok(data));
   $("form-stok").reset();
   $("stok-nama").focus();
   renderStok();
+  jadwalMuatUlang();
 }
 
 /* ===== 7. KARYAWAN - INPUT KAS HARIAN ===== */
 let sedangSimpan = false;
 let ketOtomatis = ""; // teks keterangan yang diisi otomatis dari pilihan barang
+let tanggalIkutHariIni = true; // tanggal kas ikut berganti lewat tengah malam, kecuali karyawan memilih tanggal lain
+
+function setTanggalHariIni() {
+  $("kas-tanggal").value = hariIni();
+  tanggalIkutHariIni = true;
+}
 
 function pesanKas(teks, error) {
   $("kas-pesan").textContent = teks;
@@ -718,10 +938,16 @@ function aturFieldBarang() {
   if (ketOtomatis && $("kas-keterangan").value === ketOtomatis) $("kas-keterangan").value = "";
   ketOtomatis = "";
   $("kas-jumlah").value = "1";
+  $("kas-barang").innerHTML = ""; // mulai tanpa barang terpilih
+  isiPilihanBarang();
+}
 
+/* Isi daftar barang dari stok terbaru; barang yang sedang dipilih tetap dipertahankan */
+function isiPilihanBarang() {
   const pilih = $("kas-barang");
+  const sebelumnya = pilih.value;
   pilih.innerHTML = "";
-  if (!tampil) return;
+  if (!penjualanBarang()) return;
 
   const kosong = document.createElement("option");
   kosong.value = "";
@@ -735,6 +961,12 @@ function aturFieldBarang() {
     if (b.stok <= 0) o.disabled = true;
     pilih.appendChild(o);
   });
+
+  pilih.value = sebelumnya;
+  if (pilih.value !== sebelumnya) { // barang yang dipilih sudah dihapus dari stok
+    pilih.value = "";
+    hitungBarang();
+  }
 }
 
 function barangTerpilih() {
@@ -763,7 +995,7 @@ function hitungBarang() {
 }
 
 function renderKas() {
-  const tanggal = $("kas-tanggal").value;
+  const tanggal = $("kas-tanggal").value || hariIni(); // kolom tanggal sedang dikosongkan: anggap hari ini
   const nama = namaKaryawan();
   const data = ambilTransaksi().filter((t) => t.tanggal === tanggal && t.karyawan === nama);
   const masuk = jumlahPerJenis("Pemasukan", data);
@@ -800,56 +1032,73 @@ function renderKas() {
 }
 
 function mulaiKas() {
-  $("kas-tanggal").value = hariIni();
+  setTanggalHariIni();
   isiKategoriKas();
   aturFieldBarang();
   pesanKas("");
   renderKas();
 }
 
-function simpanKas(e) {
+let sedangKirimKas = false;
+
+async function simpanKas(e) {
   e.preventDefault();
+  if (sedangKirimKas) return; // tombol Simpan diklik dua kali: jangan tersimpan dobel
+  cekGantiHari(); // halaman dibiarkan terbuka lewat tengah malam: pakai tanggal hari baru
+  const tanggal = $("kas-tanggal").value;
+  const jenis = $("kas-jenis").value;
+  const kategori = $("kas-kategori").value;
   const nominal = Number($("kas-nominal").value);
   const keterangan = $("kas-keterangan").value.trim();
 
-  if (!$("kas-tanggal").value || !$("kas-kategori").value || !keterangan || !(nominal > 0)) {
+  if (!tanggal || !kategori || !keterangan || !(nominal > 0)) {
     return pesanKas("Lengkapi semua kolom dengan benar.", true);
   }
+  /* Tahun lebih dari 4 digit (salah ketik) merusak laporan & membuat backup ditolak */
+  if (!POLA_TANGGAL.test(tanggal)) return pesanKas("Tanggal tidak valid. Periksa kembali tahunnya.", true);
 
-  const transaksi = {
-    id: buatId(),
-    tanggal: $("kas-tanggal").value,
-    jam: jamSekarang(),
-    karyawan: namaKaryawan(),
-    jenis: $("kas-jenis").value,
-    kategori: $("kas-kategori").value,
-    keterangan: keterangan,
-    nominal: nominal,
-  };
-
-  /* Penjualan dari stok: kurangi stok barang */
-  const stokSebelum = ambilStok();
-  let stokBaru = null;
+  /* Penjualan dari stok: stok dikurangi di database bersamaan dengan transaksi */
   const item = penjualanBarang() ? barangTerpilih() : null;
+  let qty = null;
   if (item) {
-    const qty = Number($("kas-jumlah").value);
+    qty = Number($("kas-jumlah").value);
     if (!Number.isInteger(qty) || qty < 1) return pesanKas("Jumlah barang harus bilangan bulat minimal 1.", true);
     if (qty > item.stok) return pesanKas("Stok " + item.nama + " tidak cukup (sisa " + item.stok + ").", true);
-    stokBaru = stokSebelum.map((b) => (b.id === item.id ? Object.assign({}, b, { stok: b.stok - qty }) : b));
-    transaksi.stokId = item.id;
-    transaksi.qty = qty;
   }
 
-  if (stokBaru && !simpanStok(stokBaru)) return pesanKas("Gagal menyimpan stok. Penyimpanan browser diblokir.", true);
-  const data = ambilTransaksi();
-  data.push(transaksi);
-  if (!simpanTransaksi(data)) {
-    if (stokBaru) simpanStok(stokSebelum); // batalkan pengurangan stok
-    return pesanKas("Gagal menyimpan. Penyimpanan browser diblokir.", true);
+  sedangKirimKas = true;
+  pesanKas("Menyimpan...");
+  const { data, error } = await kirim(db.rpc("simpan_transaksi", {
+    p_tanggal: tanggal,
+    p_jam: jamSekarang(),
+    p_jenis: jenis,
+    p_kategori: kategori,
+    p_keterangan: keterangan,
+    p_nominal: nominal,
+    p_stok_id: item ? item.id : null,
+    p_qty: qty,
+  }));
+  sedangKirimKas = false;
+
+  if (error) {
+    if (item && /Stok tidak cukup/i.test(String(error.message))) {
+      /* Stok sudah berubah di perangkat lain: ambil angka terbaru */
+      try { await muatData(); } catch (err) { /* abaikan */ }
+      isiPilihanBarang();
+      const kini = dataStok.find((b) => b.id === item.id);
+      return pesanKas("Stok " + item.nama + " tidak cukup (sisa " + (kini ? kini.stok : 0) + ").", true);
+    }
+    return pesanKas("Gagal menyimpan: " + teksGagal(error), true);
   }
 
-  const tanggal = $("kas-tanggal").value;
-  const jenis = $("kas-jenis").value;
+  /* Perbarui data di memori tanpa menunggu muat ulang */
+  const baris = Array.isArray(data) ? data[0] : data;
+  if (baris) dataTransaksi.push(dariBarisTransaksi(baris));
+  if (item) {
+    const b = dataStok.find((x) => x.id === item.id);
+    if (b) b.stok = Math.max(0, b.stok - qty);
+  }
+
   sedangSimpan = true; // supaya event "reset" tidak menimpa pesan & tanggal
   $("form-kas").reset();
   $("kas-tanggal").value = tanggal; // tetap di tanggal yang sama untuk input berikutnya
@@ -858,29 +1107,48 @@ function simpanKas(e) {
   aturFieldBarang();
   renderKas();
   $("kas-keterangan").focus();
-  pesanKas(item ? "Transaksi disimpan. Stok " + item.nama + " berkurang " + transaksi.qty + "." : "Transaksi berhasil disimpan.");
+  pesanKas(item ? "Transaksi disimpan. Stok " + item.nama + " berkurang " + qty + "." : "Transaksi berhasil disimpan.");
+  jadwalMuatUlang();
 }
 
-function hapusKas(id) {
-  const data = ambilTransaksi();
-  const t = data.find((x) => x.id === id);
-  if (!t) return;
+async function hapusKas(id) {
+  const t = dataTransaksi.find((x) => x.id === id);
+  if (!t || sedangDihapus.has(id)) return;
   if (!confirm('Hapus transaksi "' + t.keterangan + '" (' + formatRupiah(t.nominal) + ")?" +
       (t.stokId !== undefined ? "\nStok barang akan dikembalikan." : ""))) return;
 
-  /* Kembalikan stok jika transaksi ini penjualan dari stok */
-  if (t.stokId !== undefined) {
-    const stok = ambilStok();
-    const item = stok.find((b) => b.id === t.stokId);
-    if (item) {
-      item.stok += Number(t.qty) || 0;
-      simpanStok(stok);
-    }
-  }
+  /* Di database: transaksi dihapus dan stok dikembalikan sekaligus */
+  sedangDihapus.add(id);
+  const { error } = await kirim(db.rpc("hapus_transaksi", { p_id: id }));
+  sedangDihapus.delete(id);
+  if (error) return pesanKas("Gagal menghapus: " + teksGagal(error), true);
 
-  simpanTransaksi(data.filter((x) => x.id !== id));
+  dataTransaksi = dataTransaksi.filter((x) => x.id !== id);
+  if (t.stokId !== undefined) {
+    const item = dataStok.find((b) => b.id === t.stokId);
+    if (item) item.stok += Number(t.qty) || 0;
+  }
   renderKas();
+  isiPilihanBarang();
   pesanKas("Transaksi dihapus.");
+  jadwalMuatUlang();
+}
+
+/* ----- Ganti hari (halaman dibiarkan terbuka lewat tengah malam) ----- */
+let hariTampil = hariIni();
+
+function cekGantiHari() {
+  const sekarang = hariIni();
+  const gantiHari = sekarang !== hariTampil;
+  hariTampil = sekarang;
+  if (!sesi) return;
+
+  if (!$("view-kas").hidden) {
+    const geser = tanggalIkutHariIni && $("kas-tanggal").value !== sekarang;
+    if (geser) $("kas-tanggal").value = sekarang;
+    if (geser || gantiHari) renderKas();
+  }
+  if (gantiHari && !$("view-laporan").hidden) renderLaporan(); // filter "Hari Ini", "Bulan Ini", dst.
 }
 
 /* ===== 8. MULAI APLIKASI ===== */
@@ -914,7 +1182,7 @@ $("form-kas").addEventListener("submit", simpanKas);
 $("form-kas").addEventListener("reset", () => {
   setTimeout(() => {
     if (sedangSimpan) { sedangSimpan = false; return; }
-    $("kas-tanggal").value = hariIni();
+    setTanggalHariIni();
     isiKategoriKas();
     aturFieldBarang();
     renderKas();
@@ -925,11 +1193,53 @@ $("kas-jenis").addEventListener("change", () => { isiKategoriKas(); aturFieldBar
 $("kas-kategori").addEventListener("change", aturFieldBarang);
 $("kas-barang").addEventListener("change", hitungBarang);
 $("kas-jumlah").addEventListener("input", hitungBarang);
-$("kas-tanggal").addEventListener("change", () => { renderKas(); pesanKas(""); });
+$("kas-tanggal").addEventListener("change", () => {
+  tanggalIkutHariIni = $("kas-tanggal").value === hariIni();
+  renderKas();
+  pesanKas("");
+});
+$("kas-tanggal").addEventListener("blur", () => {
+  if ($("kas-tanggal").value) return;
+  setTanggalHariIni(); // tanggal dikosongkan lalu ditinggal: kembali ke hari ini
+  renderKas();
+});
 
-sesi = bacaSesi();
-if (sesi) {
-  tampilkanAplikasi();
-} else {
-  tampilkanLogin();
+/* Lewat tengah malam; kembali ke tab ini: ambil data terbaru */
+setInterval(cekGantiHari, 30000);
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) return;
+  cekGantiHari();
+  if (sesi) jadwalMuatUlang();
+});
+
+/* Sesi login habis / dicabut di Supabase: kembali ke halaman login */
+if (db) {
+  db.auth.onAuthStateChange((event) => {
+    if (event !== "SIGNED_OUT" || !sesi) return;
+    setTimeout(() => {
+      akhiriSesi();
+      tampilkanLogin("Sesi login berakhir. Silakan masuk lagi.");
+    }, 0);
+  });
 }
+
+/* Buka website: lanjutkan sesi login yang masih ada di tab ini */
+async function mulai() {
+  if (!db) return tampilkanLogin("Gagal memuat Supabase. Periksa koneksi internet lalu muat ulang halaman.");
+  try {
+    const { data } = await db.auth.getSession();
+    if (!data.session) return tampilkanLogin();
+    const profil = await ambilProfil();
+    if (!profil) {
+      await db.auth.signOut({ scope: "local" });
+      return tampilkanLogin();
+    }
+    await muatData();
+    sesi = profil;
+    tampilkanAplikasi();
+  } catch (e) {
+    tampilkanLogin(teksGagal(e));
+  }
+}
+
+mulai();
