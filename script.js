@@ -94,6 +94,45 @@ function formatRupiah(n) {
   return (n < 0 ? "-Rp " : "Rp ") + Math.abs(n).toLocaleString("id-ID");
 }
 
+/* ----- Kolom uang: tampil "Rp 1.500.000" saat diketik ----- */
+const MAKS_DIGIT_RUPIAH = 13; // sampai Rp 9.999.999.999.999
+
+/* Ambil angkanya saja dari kolom uang ("Rp 1.500.000" -> 1500000). Kosong -> NaN */
+function angkaRupiah(input) {
+  const digit = input.value.replace(/\D/g, "");
+  return digit ? Number(digit) : NaN;
+}
+
+/* Isi kolom uang dari angka (dipakai saat nominal dihitung otomatis) */
+function isiRupiah(input, angka) {
+  input.value = isFinite(angka) && angka >= 0 ? formatRupiah(Math.round(angka)) : "";
+}
+
+/* Format ulang saat diketik/ditempel; posisi kursor dijaga agar tidak lompat ke ujung */
+function formatKetikRupiah(input) {
+  const lama = input.value;
+  const kursor = input.selectionStart === null ? lama.length : input.selectionStart;
+  const digitDiKanan = lama.slice(kursor).replace(/\D/g, "").length;
+
+  const digit = lama
+    .replace(/,\d{0,2}\s*$/, "")   // buang sen dari teks tempelan, mis. "Rp 2.500.000,00"
+    .replace(/\D/g, "")
+    .replace(/^0+(?=\d)/, "")      // "05" -> "5"
+    .slice(0, MAKS_DIGIT_RUPIAH);
+  const baru = digit ? formatRupiah(Number(digit)) : "";
+  if (baru === lama) return;
+  input.value = baru;
+
+  if (document.activeElement !== input || !baru) return;
+  let posisi = baru.length;
+  for (let dilewati = 0; posisi > 0 && dilewati < Math.min(digitDiKanan, digit.length); ) {
+    posisi--;
+    if (/\d/.test(baru[posisi])) dilewati++;
+  }
+  posisi = Math.max(posisi, baru.search(/\d/)); // jangan di depan tulisan "Rp "
+  input.setSelectionRange(posisi, posisi);
+}
+
 function dua(x) { return String(x).padStart(2, "0"); }
 
 function isoTanggal(d) {
@@ -913,8 +952,8 @@ async function tambahBarang(e) {
     nama: nama,
     kategori: $("stok-kategori").value.trim(),
     stok: Number($("stok-jumlah").value) || 0,
-    harga_beli: Number($("stok-beli").value) || 0,
-    harga_jual: Number($("stok-jual").value) || 0,
+    harga_beli: angkaRupiah($("stok-beli")) || 0,
+    harga_jual: angkaRupiah($("stok-jual")) || 0,
   }).select().single());
   sedangTambahBarang = false;
   if (error) return alert("Gagal menyimpan barang: " + teksGagal(error));
@@ -1025,7 +1064,7 @@ function hitungBarang() {
 
   const jumlah = Math.max(1, Math.floor(Number($("kas-jumlah").value) || 1));
   const beli = jenisBarang() === "beli";
-  $("kas-nominal").value = (beli ? item.hargaBeli : item.hargaJual) * jumlah;
+  isiRupiah($("kas-nominal"), (beli ? item.hargaBeli : item.hargaJual) * jumlah);
 
   const baru = (beli ? "Beli " : "") + item.nama + " x" + jumlah;
   if (ket.value === "" || ket.value === ketOtomatis) ket.value = baru;
@@ -1091,7 +1130,7 @@ async function simpanKas(e) {
   const tanggal = $("kas-tanggal").value;
   const jenis = $("kas-jenis").value;
   const kategori = $("kas-kategori").value;
-  const nominal = Number($("kas-nominal").value);
+  const nominal = angkaRupiah($("kas-nominal"));
   const keterangan = $("kas-keterangan").value.trim();
 
   if (!tanggal || !kategori || !keterangan || !(nominal > 0)) {
@@ -1219,6 +1258,11 @@ $("btn-restore").addEventListener("click", () => $("file-restore").click());
 $("file-restore").addEventListener("change", (e) => {
   restoreData(e.target.files[0]);
   e.target.value = ""; // supaya file yang sama bisa dipilih lagi
+});
+
+/* Kolom uang (Nominal, Harga Beli, Harga Jual): format Rupiah otomatis */
+document.querySelectorAll(".input-rupiah").forEach((el) => {
+  el.addEventListener("input", () => formatKetikRupiah(el));
 });
 
 /* Stok */
