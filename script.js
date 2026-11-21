@@ -28,8 +28,8 @@ const DOMAIN_AKUN = "@keisha.local"; // username "admin" -> admin@keisha.local
 
 /* Halaman yang boleh dibuka tiap peran (yang pertama = halaman awal) */
 const AKSES = {
-  admin:    ["laporan", "stok", "kas"],
-  karyawan: ["kas"],
+  admin:    ["laporan", "stok", "kas", "service"],
+  karyawan: ["kas", "service"],
 };
 
 /* Data versi lama (sebelum Supabase) yang mungkin masih tersimpan di browser ini */
@@ -50,6 +50,10 @@ const KATEGORI_KHUSUS_ADMIN = ["Gaji", "Pembelian Stok"];
 
 /* Kategori pengeluaran yang menambah stok barang (admin) */
 const KATEGORI_PEMBELIAN = "Pembelian Stok";
+
+/* Status service. Diambil & Batal hanya lewat tombol Lunasi / Batal */
+const STATUS_AKTIF = ["Diterima", "Dikerjakan", "Selesai"];
+const STATUS_SERVICE = STATUS_AKTIF.concat(["Diambil", "Batal"]);
 
 /* Format tanggal yang disimpan: YYYY-MM-DD (tahun 4 digit) */
 const POLA_TANGGAL = /^\d{4}-\d{2}-\d{2}$/;
@@ -207,6 +211,7 @@ function teksGagal(error) {
    lalu diperbarui otomatis saat ada perubahan dari perangkat lain (Realtime). */
 let dataStok = [];
 let dataTransaksi = [];
+let dataService = [];
 const ambilTransaksi = () => dataTransaksi;
 const ambilStok = () => dataStok;
 
@@ -250,7 +255,30 @@ function dariBarisTransaksi(r) {
     hpp: Number(r.hpp) || 0, // modal barang yang terjual (untuk hitung laba)
   };
   if (r.stok_id) { t.stokId = r.stok_id; t.qty = Number(r.qty) || 0; }
+  if (r.service_id) { t.serviceId = r.service_id; t.serviceTahap = r.service_tahap || ""; } // uang dari halaman Service
   return t;
+}
+
+function dariBarisService(r) {
+  return {
+    id: r.id,
+    nota: r.nota,
+    tanggalMasuk: r.tanggal_masuk,
+    pelanggan: r.pelanggan,
+    noHp: r.no_hp || "",
+    perangkat: r.perangkat,
+    kelengkapan: r.kelengkapan || "",
+    keluhan: r.keluhan || "",
+    perkiraan: Number(r.perkiraan) || 0,
+    status: r.status,
+    biayaJasa: Number(r.biaya_jasa) || 0,
+    total: Number(r.total) || 0,
+    dibayar: Number(r.dibayar) || 0,
+    alasanBatal: r.alasan_batal || "",
+    dicatatOleh: r.dicatat_oleh || "",
+    diambilAt: r.diambil_at || null,
+    dibatalkanAt: r.dibatalkan_at || null,
+  };
 }
 
 /* Supabase membatasi 1000 baris per permintaan: ambil bertahap sampai habis */
@@ -271,10 +299,12 @@ async function ambilSemuaBaris(tabel) {
    Hasil false = ada perubahan dari perangkat ini saat memuat, coba lagi nanti. */
 async function muatData() {
   const versi = versiLokal;
-  const [stok, transaksi] = await Promise.all([ambilSemuaBaris("stok"), ambilSemuaBaris("transaksi")]);
+  const [stok, transaksi, service] = await Promise.all(
+    [ambilSemuaBaris("stok"), ambilSemuaBaris("transaksi"), ambilSemuaBaris("service")]);
   if (versi !== versiLokal || operasiBerjalan > 0) return false;
   dataStok = stok.map(dariBarisStok);
   dataTransaksi = transaksi.map(dariBarisTransaksi);
+  dataService = service.map(dariBarisService);
   return true;
 }
 
@@ -284,6 +314,7 @@ function tampilkanUlang() {
   if (!$("view-laporan").hidden) renderLaporan();
   if (!$("view-stok").hidden) renderStok();
   if (!$("view-kas").hidden) { renderKas(); isiPilihanBarang(); }
+  if (!$("view-service").hidden) renderService();
 }
 
 let jedaMuat = null;
@@ -306,6 +337,7 @@ function mulaiRealtime() {
   saluran = db.channel("data-kasir")
     .on("postgres_changes", { event: "*", schema: "public", table: "stok" }, jadwalMuatUlang)
     .on("postgres_changes", { event: "*", schema: "public", table: "transaksi" }, jadwalMuatUlang)
+    .on("postgres_changes", { event: "*", schema: "public", table: "service" }, jadwalMuatUlang)
     .subscribe((status) => { if (status === "SUBSCRIBED") jadwalMuatUlang(); }); // termasuk setelah koneksi putus
 }
 
@@ -340,7 +372,9 @@ function tampilkanLogin(pesan) {
 function tampilkanAplikasi() {
   $("halaman-login").hidden = true;
   $("aplikasi").hidden = false;
-  $("sidebar").hidden = sesi.role !== "admin";
+  /* Menu samping untuk semua; menu khusus admin (Laporan, Stok, Backup/Restore) disembunyikan dari karyawan */
+  $("sidebar").hidden = false;
+  document.querySelectorAll('[data-peran="admin"]').forEach((el) => { el.hidden = sesi.role !== "admin"; });
   pindahHalaman();
   mulaiRealtime();
   if (sesi.role === "admin") setTimeout(tawarkanDataLama, 300);
@@ -354,6 +388,8 @@ function akhiriSesi() {
   sesi = null;
   dataStok = [];
   dataTransaksi = [];
+  dataService = [];
+  panelService = null;
 }
 
 /* Halaman yang diminta lewat alamat (#laporan, #stok, #kas), dicek hak akses */
@@ -367,7 +403,7 @@ function pindahHalaman() {
     try { history.replaceState(null, "", "#" + halaman); } catch (e) { location.hash = halaman; }
   }
 
-  ["laporan", "stok", "kas"].forEach((h) => { $("view-" + h).hidden = h !== halaman; });
+  ["laporan", "stok", "kas", "service"].forEach((h) => { $("view-" + h).hidden = h !== halaman; });
   document.querySelectorAll("[data-nav]").forEach((a) => {
     a.classList.toggle("active", a.dataset.nav === halaman);
   });
@@ -375,6 +411,7 @@ function pindahHalaman() {
   if (halaman === "laporan") renderLaporan();
   if (halaman === "stok") renderStok();
   if (halaman === "kas") mulaiKas();
+  if (halaman === "service") mulaiService();
 }
 
 let sedangLogin = false;
@@ -766,6 +803,7 @@ async function backupData() {
     dibuat: new Date().toISOString(),
     transaksi: ambilTransaksi(),
     stok: ambilStok(),
+    service: dataService,
   };
   unduh("backup-keisha-" + hariIni() + ".json", new Blob([JSON.stringify(isi, null, 2)], { type: "application/json" }));
 }
@@ -789,7 +827,40 @@ function bersihkanBackup(obj) {
     if (t.jam) baru.jam = String(t.jam);
     if (t.hpp !== undefined && t.hpp !== null && isFinite(Number(t.hpp))) baru.hpp = Number(t.hpp);
     if (t.stokId !== undefined && t.stokId !== null && isFinite(Number(t.qty))) { baru.stokId = t.stokId; baru.qty = Number(t.qty); }
+    if (t.serviceId) {
+      baru.serviceId = String(t.serviceId);
+      if (["dp", "lunas", "batal"].indexOf(t.serviceTahap) !== -1) baru.serviceTahap = t.serviceTahap;
+    }
     transaksi.push(baru);
+  }
+
+  /* Data service (backup lama belum punya bagian ini) */
+  const service = [];
+  if (obj.service !== undefined) {
+    if (!Array.isArray(obj.service)) return null;
+    for (const s of obj.service) {
+      if (!s || typeof s.nota !== "string" || !s.nota || !POLA_TANGGAL.test(s.tanggalMasuk) ||
+          STATUS_SERVICE.indexOf(s.status) === -1) return null;
+      service.push({
+        id: String(s.id || buatId()),
+        nota: s.nota,
+        tanggalMasuk: s.tanggalMasuk,
+        pelanggan: String(s.pelanggan || "").trim() || "(Tanpa nama)",
+        noHp: String(s.noHp || ""),
+        perangkat: String(s.perangkat || "").trim() || "(Tidak diisi)",
+        kelengkapan: String(s.kelengkapan || ""),
+        keluhan: String(s.keluhan || ""),
+        perkiraan: Math.max(0, Number(s.perkiraan) || 0),
+        status: s.status,
+        biayaJasa: Number(s.biayaJasa) || 0,
+        total: Number(s.total) || 0,
+        dibayar: Number(s.dibayar) || 0,
+        alasanBatal: String(s.alasanBatal || ""),
+        dicatatOleh: String(s.dicatatOleh || ""),
+        diambilAt: s.diambilAt || null,
+        dibatalkanAt: s.dibatalkanAt || null,
+      });
+    }
   }
 
   for (const b of obj.stok) {
@@ -805,7 +876,7 @@ function bersihkanBackup(obj) {
       hargaJual: Number(b.hargaJual) || 0,
     });
   }
-  return { transaksi: transaksi, stok: stok };
+  return { transaksi: transaksi, stok: stok, service: service };
 }
 
 function restoreData(file) {
@@ -819,10 +890,12 @@ function restoreData(file) {
       return;
     }
     const ok = confirm("Semua data di database akan DIGANTI dengan isi backup:\n" +
-      bersih.transaksi.length + " transaksi dan " + bersih.stok.length + " barang.\n\nLanjutkan?");
+      bersih.transaksi.length + " transaksi, " + bersih.stok.length + " barang, dan " +
+      bersih.service.length + " service.\n\nLanjutkan?");
     if (!ok) return;
     /* Dijalankan di database sebagai satu kesatuan: gagal = data lama tetap utuh */
-    const { error } = await kirim(db.rpc("restore_data", { p_stok: bersih.stok, p_transaksi: bersih.transaksi }));
+    const { error } = await kirim(db.rpc("restore_data",
+      { p_stok: bersih.stok, p_transaksi: bersih.transaksi, p_service: bersih.service }));
     if (error) {
       alert("Restore gagal: " + teksGagal(error) + "\nData di database tidak berubah.");
       return;
@@ -1105,7 +1178,15 @@ function renderKas() {
     tr.appendChild(td((t.keterangan || "-") + (admin ? " · " + (t.karyawan || "-") : ""))); // admin: tampilkan siapa pencatatnya
     tr.appendChild(td(formatRupiah(t.nominal)));
     const tdAksi = document.createElement("td");
-    tdAksi.appendChild(buatTombol("Hapus", "btn-hapus", () => hapusKas(t.id)));
+    if (t.serviceId) {
+      /* Uang dari halaman Service hanya bisa dikoreksi lewat halaman Service */
+      const ket = document.createElement("span");
+      ket.className = "teks-aksi";
+      ket.textContent = "dari Service";
+      tdAksi.appendChild(ket);
+    } else {
+      tdAksi.appendChild(buatTombol("Hapus", "btn-hapus", () => hapusKas(t.id)));
+    }
     tr.appendChild(tdAksi);
     tbody.appendChild(tr);
   });
@@ -1199,6 +1280,7 @@ async function simpanKas(e) {
 async function hapusKas(id) {
   const t = dataTransaksi.find((x) => x.id === id);
   if (!t || sedangDihapus.has(id)) return;
+  if (t.serviceId) return pesanKas("Transaksi ini dicatat dari halaman Service. Koreksi lewat halaman Service.", true);
   const pembelian = t.jenis === "Pengeluaran"; // pembelian stok: menghapusnya mengurangi stok lagi
   if (!confirm('Hapus transaksi "' + t.keterangan + '" (' + formatRupiah(t.nominal) + ")?" +
       (t.stokId !== undefined ? (pembelian ? "\nStok barang akan dikurangi lagi." : "\nStok barang akan dikembalikan.") : ""))) return;
@@ -1238,6 +1320,436 @@ function cekGantiHari() {
   if (gantiHari && !$("view-laporan").hidden) renderLaporan(); // filter "Hari Ini", "Bulan Ini", dst.
 }
 
+/* ===== 7b. SERVICE =====
+   Service masuk (+DP), status pengerjaan, pelunasan (+sparepart dari stok),
+   pembatalan (karyawan & admin), buka lagi (admin). Semua uang tercatat
+   otomatis di Input Kas oleh database. */
+let panelService = null; // panel yang terbuka: { jenis: "lunas" | "batal", id, sparepart: [{ stokId, qty }] }
+let sedangKirimService = false;
+let sedangProsesPanel = false;
+let resetSetelahSimpanService = false;
+
+const serviceAktif = (s) => STATUS_AKTIF.indexOf(s.status) !== -1;
+/* Perkiraan sisa tagihan (biaya pasti baru diketahui saat pelunasan) */
+const sisaService = (s) => (serviceAktif(s) ? Math.max(0, s.perkiraan - s.dibayar) : 0);
+const cariService = (id) => dataService.find((s) => s.id === id) || null;
+
+function pesanService(id, teks, error) {
+  $(id).textContent = teks;
+  $(id).className = "kas-pesan" + (error ? " error" : "");
+}
+
+/* <td> berisi teks utama + baris kecil di bawahnya */
+function tdDuaBaris(utama, kecil) {
+  const el = document.createElement("td");
+  el.textContent = utama || "-";
+  if (kecil) {
+    const sp = document.createElement("span");
+    sp.className = "teks-kecil";
+    sp.textContent = kecil;
+    el.appendChild(sp);
+  }
+  return el;
+}
+
+function terapkanBarisService(data) {
+  const baris = Array.isArray(data) ? data[0] : data;
+  if (!baris) return null;
+  const baru = dariBarisService(baris);
+  const i = dataService.findIndex((x) => x.id === baru.id);
+  if (i >= 0) dataService[i] = baru; else dataService.push(baru);
+  return baru;
+}
+
+function mulaiService() {
+  tutupPanelService();
+  pesanService("srv-pesan", "");
+  renderService();
+}
+
+function renderService() {
+  const semua = dataService;
+  $("srv-proses").textContent = semua.filter((s) => s.status === "Diterima" || s.status === "Dikerjakan").length;
+  $("srv-siap").textContent = semua.filter((s) => s.status === "Selesai").length;
+  $("srv-sisa").textContent = formatRupiah(semua.reduce((n, s) => n + sisaService(s), 0));
+
+  const saring = $("srv-saring").value;
+  const kata = $("srv-cari").value.trim().toLowerCase();
+  const tampil = semua.filter((s) =>
+    (saring === "semua" || (saring === "aktif" ? serviceAktif(s) : s.status === saring)) &&
+    (!kata || [s.nota, s.pelanggan, s.noHp, s.perangkat, s.keluhan].some((x) => String(x).toLowerCase().includes(kata))));
+
+  const tbody = $("srv-daftar");
+  tbody.innerHTML = "";
+  if (tampil.length === 0) {
+    tbody.appendChild(barisKosong(7, semua.length === 0
+      ? "Belum ada service. Catat lewat form Service Masuk di atas."
+      : "Tidak ada service yang cocok."));
+  }
+  tampil.slice().reverse().forEach((s) => tbody.appendChild(barisService(s))); // terbaru di atas
+
+  perbaruiPanelService();
+}
+
+function barisService(s) {
+  const tr = document.createElement("tr");
+  tr.appendChild(td(s.nota));
+  tr.appendChild(td(formatTanggal(s.tanggalMasuk)));
+  tr.appendChild(tdDuaBaris(s.pelanggan, s.noHp));
+  tr.appendChild(tdDuaBaris(s.perangkat,
+    [s.keluhan, s.kelengkapan ? "Kelengkapan: " + s.kelengkapan : ""].filter(Boolean).join(" · ")));
+
+  /* Status: bisa diubah langsung selama service masih berjalan */
+  const tdStatus = document.createElement("td");
+  if (serviceAktif(s)) {
+    const pilih = document.createElement("select");
+    pilih.className = "select-status status-" + s.status.toLowerCase();
+    pilih.setAttribute("aria-label", "Status " + s.nota);
+    STATUS_AKTIF.forEach((st) => {
+      const o = document.createElement("option");
+      o.value = st;
+      o.textContent = st;
+      pilih.appendChild(o);
+    });
+    pilih.value = s.status;
+    pilih.addEventListener("change", () => ubahStatusService(s.id, pilih.value));
+    tdStatus.appendChild(pilih);
+  } else {
+    const lencana = document.createElement("span");
+    lencana.className = "status status-" + s.status.toLowerCase();
+    lencana.textContent = s.status;
+    tdStatus.appendChild(lencana);
+  }
+  tr.appendChild(tdStatus);
+
+  /* Pembayaran */
+  if (serviceAktif(s)) {
+    tr.appendChild(tdDuaBaris(s.dibayar > 0 ? "DP " + formatRupiah(s.dibayar) : "Belum bayar",
+      s.perkiraan > 0 ? "Perkiraan " + formatRupiah(s.perkiraan) : ""));
+  } else if (s.status === "Diambil") {
+    tr.appendChild(tdDuaBaris("Lunas " + formatRupiah(s.total),
+      s.diambilAt ? "Diambil " + formatTanggal(isoTanggal(new Date(s.diambilAt))) : ""));
+  } else {
+    tr.appendChild(tdDuaBaris(s.total > 0 ? "Biaya cek " + formatRupiah(s.total) : "Tanpa biaya", s.alasanBatal));
+  }
+
+  /* Aksi */
+  const tdAksi = document.createElement("td");
+  const wadah = document.createElement("div");
+  wadah.className = "aksi-service";
+  if (serviceAktif(s)) {
+    wadah.appendChild(buatTombol("Lunasi", "btn-aksi", () => bukaPelunasan(s.id)));
+    wadah.appendChild(buatTombol("Batal", "btn-hapus", () => bukaPembatalan(s.id)));
+  } else if (sesi && sesi.role === "admin") {
+    wadah.appendChild(buatTombol("Buka Lagi", "btn-aksi btn-aksi-abu", () => bukaLagiService(s.id)));
+  } else {
+    const ket = document.createElement("span");
+    ket.className = "teks-aksi";
+    ket.textContent = "-";
+    wadah.appendChild(ket);
+  }
+  tdAksi.appendChild(wadah);
+  tr.appendChild(tdAksi);
+  return tr;
+}
+
+async function ubahStatusService(id, status) {
+  const s = cariService(id);
+  if (!s || s.status === status) return;
+  const lama = s.status;
+  s.status = status; // tampil langsung, database menyusul
+  renderService();
+  const { error } = await kirim(db.rpc("service_ubah_status", { p_id: id, p_status: status }));
+  if (error) {
+    s.status = lama;
+    renderService();
+    alert("Gagal mengubah status " + s.nota + ": " + teksGagal(error));
+  }
+  jadwalMuatUlang();
+}
+
+async function simpanServiceMasuk(e) {
+  e.preventDefault();
+  if (sedangKirimService) return; // tombol diklik dua kali: jangan tersimpan dobel
+  const isi = {
+    p_pelanggan: $("srv-pelanggan").value.trim(),
+    p_no_hp: $("srv-hp").value.trim(),
+    p_perangkat: $("srv-perangkat").value.trim(),
+    p_kelengkapan: $("srv-kelengkapan").value.trim(),
+    p_keluhan: $("srv-keluhan").value.trim(),
+    p_perkiraan: angkaRupiah($("srv-perkiraan")) || 0,
+    p_dp: angkaRupiah($("srv-dp")) || 0,
+  };
+  if (!isi.p_pelanggan || !isi.p_perangkat || !isi.p_keluhan) {
+    return pesanService("srv-pesan", "Nama pelanggan, perangkat, dan keluhan wajib diisi.", true);
+  }
+  if (isi.p_perkiraan > 0 && isi.p_dp > isi.p_perkiraan &&
+      !confirm("DP (" + formatRupiah(isi.p_dp) + ") lebih besar dari perkiraan biaya (" +
+               formatRupiah(isi.p_perkiraan) + "). Tetap simpan?")) return;
+
+  sedangKirimService = true;
+  pesanService("srv-pesan", "Menyimpan...");
+  const { data, error } = await kirim(db.rpc("service_terima", isi));
+  sedangKirimService = false;
+  if (error) return pesanService("srv-pesan", "Gagal menyimpan: " + teksGagal(error), true);
+
+  const s = terapkanBarisService(data);
+  resetSetelahSimpanService = true; // supaya event "reset" tidak menghapus pesan
+  $("form-service").reset();
+  $("srv-saring").value = "aktif";
+  $("srv-cari").value = "";
+  renderService();
+  $("srv-pelanggan").focus();
+  pesanService("srv-pesan", "Service " + s.nota + " disimpan." +
+    (isi.p_dp > 0 ? " DP " + formatRupiah(isi.p_dp) + " tercatat di kas." : "") +
+    " Tulis nomor " + s.nota + " di nota pelanggan.");
+  jadwalMuatUlang(); // ambil transaksi DP dari database
+}
+
+/* ----- Panel pelunasan & pembatalan ----- */
+function tutupPanelService() {
+  panelService = null;
+  $("srv-panel-lunas").hidden = true;
+  $("srv-panel-batal").hidden = true;
+}
+
+function tampilkanPanel(id, fokus) {
+  $(id).hidden = false;
+  $(id).scrollIntoView({ block: "center", behavior: "smooth" });
+  $(fokus).focus({ preventScroll: true });
+}
+
+/* Isi ulang panel yang sedang terbuka (juga saat data berubah dari perangkat lain) */
+function perbaruiPanelService() {
+  if (!panelService) return;
+  const s = cariService(panelService.id);
+  if (!s || !serviceAktif(s)) {
+    tutupPanelService();
+    pesanService("srv-pesan", "Service itu sudah diproses dari perangkat lain.", true);
+    return;
+  }
+  if (panelService.jenis === "lunas") renderPanelLunas(s); else renderPanelBatal(s);
+}
+
+function barisRingkasan(wadah, label, nilai, kelas) {
+  const div = document.createElement("div");
+  if (kelas) div.className = kelas;
+  const a = document.createElement("span");
+  a.className = "label";
+  a.textContent = label;
+  const b = document.createElement("span");
+  b.textContent = nilai;
+  div.appendChild(a);
+  div.appendChild(b);
+  wadah.appendChild(div);
+}
+
+function bukaPelunasan(id) {
+  const s = cariService(id);
+  if (!s || !serviceAktif(s)) return;
+  panelService = { jenis: "lunas", id: id, sparepart: [] };
+  $("srv-panel-batal").hidden = true;
+  $("form-lunas").reset();
+  $("lunas-judul").textContent = "Pelunasan " + s.nota + " - " + s.pelanggan + " (" + s.perangkat + ")";
+  pesanService("lunas-pesan", "");
+  perbaruiPanelService();
+  tampilkanPanel("srv-panel-lunas", "lunas-jasa");
+}
+
+function isiPilihanSparepart() {
+  const pilih = $("lunas-barang");
+  const sebelumnya = pilih.value;
+  pilih.innerHTML = "";
+  const kosong = document.createElement("option");
+  kosong.value = "";
+  kosong.textContent = dataStok.length ? "(Pilih sparepart)" : "(Stok masih kosong)";
+  pilih.appendChild(kosong);
+  dataStok.forEach((b) => {
+    const o = document.createElement("option");
+    o.value = String(b.id);
+    o.textContent = b.nama + " (stok " + b.stok + ") - " + formatRupiah(b.hargaJual);
+    if (b.stok <= 0) o.disabled = true;
+    pilih.appendChild(o);
+  });
+  pilih.value = sebelumnya;
+  if (pilih.value !== sebelumnya) pilih.value = "";
+}
+
+function tambahSparepart() {
+  if (!panelService || panelService.jenis !== "lunas") return;
+  const b = dataStok.find((x) => String(x.id) === $("lunas-barang").value);
+  const qty = Number($("lunas-qty").value);
+  if (!b) return pesanService("lunas-pesan", "Pilih sparepart dulu.", true);
+  if (!Number.isInteger(qty) || qty < 1) return pesanService("lunas-pesan", "Jumlah sparepart minimal 1.", true);
+  const ada = panelService.sparepart.find((x) => x.stokId === b.id);
+  const jumlah = qty + (ada ? ada.qty : 0);
+  if (jumlah > b.stok) return pesanService("lunas-pesan", "Stok " + b.nama + " tidak cukup (sisa " + b.stok + ").", true);
+  if (ada) ada.qty = jumlah; else panelService.sparepart.push({ stokId: b.id, qty: qty });
+  $("lunas-barang").value = "";
+  $("lunas-qty").value = "1";
+  pesanService("lunas-pesan", "");
+  perbaruiPanelService();
+}
+
+function hapusSparepart(stokId) {
+  if (!panelService || panelService.jenis !== "lunas") return;
+  panelService.sparepart = panelService.sparepart.filter((x) => x.stokId !== stokId);
+  perbaruiPanelService();
+}
+
+function hitungPelunasan(s) {
+  const jasa = angkaRupiah($("lunas-jasa")) || 0;
+  const sparepart = panelService.sparepart.reduce((n, x) => {
+    const b = dataStok.find((y) => y.id === x.stokId);
+    return n + (b ? b.hargaJual * x.qty : 0);
+  }, 0);
+  const total = jasa + sparepart;
+  return { jasa: jasa, sparepart: sparepart, total: total, sisa: total - s.dibayar };
+}
+
+function renderPanelLunas(s) {
+  isiPilihanSparepart();
+  /* barang yang sudah dihapus dari stok dikeluarkan dari daftar */
+  panelService.sparepart = panelService.sparepart.filter((x) => dataStok.some((b) => b.id === x.stokId));
+
+  const tbody = $("lunas-sparepart");
+  tbody.innerHTML = "";
+  panelService.sparepart.forEach((x) => {
+    const b = dataStok.find((y) => y.id === x.stokId);
+    const tr = document.createElement("tr");
+    tr.appendChild(td(b.nama));
+    tr.appendChild(td(String(x.qty)));
+    tr.appendChild(td(formatRupiah(b.hargaJual * x.qty)));
+    const tdAksi = document.createElement("td");
+    tdAksi.appendChild(buatTombol("Hapus", "btn-hapus", () => hapusSparepart(x.stokId)));
+    tr.appendChild(tdAksi);
+    tbody.appendChild(tr);
+  });
+  $("lunas-tabel").hidden = panelService.sparepart.length === 0;
+
+  const h = hitungPelunasan(s);
+  const r = $("lunas-ringkasan");
+  r.innerHTML = "";
+  if (s.perkiraan > 0) barisRingkasan(r, "Perkiraan awal", formatRupiah(s.perkiraan), "catatan");
+  barisRingkasan(r, "Biaya jasa", formatRupiah(h.jasa));
+  barisRingkasan(r, "Sparepart", formatRupiah(h.sparepart));
+  barisRingkasan(r, "Total biaya", formatRupiah(h.total), "total");
+  barisRingkasan(r, "Sudah dibayar (DP)", formatRupiah(s.dibayar));
+  if (h.sisa >= 0) barisRingkasan(r, "Diterima dari pelanggan", formatRupiah(h.sisa), "total");
+  else barisRingkasan(r, "Kembalikan ke pelanggan", formatRupiah(-h.sisa), "total");
+}
+
+async function simpanPelunasan(e) {
+  e.preventDefault();
+  if (!panelService || panelService.jenis !== "lunas" || sedangProsesPanel) return;
+  const s = cariService(panelService.id);
+  if (!s) return;
+  const jasa = angkaRupiah($("lunas-jasa"));
+  if (!(jasa >= 0)) return pesanService("lunas-pesan", "Isi biaya jasa (ketik 0 kalau gratis).", true);
+  const h = hitungPelunasan(s);
+  if (!confirm("Simpan pelunasan " + s.nota + " - " + s.pelanggan + "?\n\n" +
+      "Total biaya: " + formatRupiah(h.total) + "\n" +
+      (h.sisa >= 0 ? "Terima dari pelanggan: " + formatRupiah(h.sisa) : "Kembalikan ke pelanggan: " + formatRupiah(-h.sisa)) +
+      "\n\nBarang ditandai sudah diambil.")) return;
+
+  sedangProsesPanel = true;
+  pesanService("lunas-pesan", "Menyimpan...");
+  const { data, error } = await kirim(db.rpc("service_lunasi", {
+    p_id: s.id,
+    p_biaya_jasa: jasa,
+    p_sparepart: panelService.sparepart.map((x) => ({ stok_id: x.stokId, qty: x.qty })),
+  }));
+  sedangProsesPanel = false;
+  if (error) {
+    if (/tidak cukup/i.test(String(error.message))) {
+      try { await muatData(); } catch (err) { /* abaikan */ }
+      perbaruiPanelService();
+    }
+    return pesanService("lunas-pesan", "Gagal: " + teksGagal(error), true);
+  }
+
+  terapkanBarisService(data);
+  tutupPanelService();
+  try { await muatData(); } catch (err) { /* tampilkan data terakhir */ }
+  renderService();
+  pesanService("srv-pesan", s.nota + " lunas dan sudah diserahkan. " +
+    (h.sisa >= 0 ? "Diterima " + formatRupiah(h.sisa) : "Dikembalikan " + formatRupiah(-h.sisa)) + " (tercatat di kas).");
+  jadwalMuatUlang();
+}
+
+function bukaPembatalan(id) {
+  const s = cariService(id);
+  if (!s || !serviceAktif(s)) return;
+  panelService = { jenis: "batal", id: id };
+  $("srv-panel-lunas").hidden = true;
+  $("form-batal").reset();
+  $("batal-judul").textContent = "Batalkan " + s.nota + " - " + s.pelanggan + " (" + s.perangkat + ")";
+  pesanService("batal-pesan", "");
+  perbaruiPanelService();
+  tampilkanPanel("srv-panel-batal", "batal-cek");
+}
+
+function renderPanelBatal(s) {
+  const cek = angkaRupiah($("batal-cek")) || 0;
+  const r = $("batal-ringkasan");
+  r.innerHTML = "";
+  barisRingkasan(r, "Sudah dibayar (DP)", formatRupiah(s.dibayar));
+  barisRingkasan(r, "Biaya cek", formatRupiah(cek));
+  if (s.dibayar > cek) barisRingkasan(r, "Kembalikan ke pelanggan", formatRupiah(s.dibayar - cek), "total");
+  else if (cek > s.dibayar) barisRingkasan(r, "Diterima dari pelanggan", formatRupiah(cek - s.dibayar), "total");
+  else barisRingkasan(r, "Uang keluar/masuk", formatRupiah(0), "total");
+}
+
+async function simpanPembatalan(e) {
+  e.preventDefault();
+  if (!panelService || panelService.jenis !== "batal" || sedangProsesPanel) return;
+  const s = cariService(panelService.id);
+  if (!s) return;
+  const cek = angkaRupiah($("batal-cek")) || 0;
+  const selisih = s.dibayar - cek;
+  if (!confirm("Batalkan " + s.nota + " - " + s.pelanggan + "?\n\n" +
+      (selisih > 0 ? "Kembalikan ke pelanggan: " + formatRupiah(selisih)
+        : selisih < 0 ? "Terima biaya cek: " + formatRupiah(-selisih)
+        : "Tidak ada uang yang perlu dikembalikan.") +
+      (sesi && sesi.role === "admin" ? "" : "\n\nSetelah dibatalkan, hanya admin yang bisa membukanya lagi."))) return;
+
+  sedangProsesPanel = true;
+  pesanService("batal-pesan", "Menyimpan...");
+  const { data, error } = await kirim(db.rpc("service_batal", {
+    p_id: s.id, p_biaya_cek: cek, p_alasan: $("batal-alasan").value.trim(),
+  }));
+  sedangProsesPanel = false;
+  if (error) return pesanService("batal-pesan", "Gagal: " + teksGagal(error), true);
+
+  terapkanBarisService(data);
+  tutupPanelService();
+  try { await muatData(); } catch (err) { /* tampilkan data terakhir */ }
+  renderService();
+  pesanService("srv-pesan", s.nota + " dibatalkan." +
+    (selisih > 0 ? " DP " + formatRupiah(selisih) + " dikembalikan (tercatat di kas)."
+      : selisih < 0 ? " Biaya cek " + formatRupiah(-selisih) + " tercatat di kas." : ""));
+  jadwalMuatUlang();
+}
+
+/* Admin: batalkan pelunasan/pembatalan untuk koreksi salah input */
+async function bukaLagiService(id) {
+  const s = cariService(id);
+  if (!s || serviceAktif(s) || sedangDihapus.has(id)) return;
+  if (!confirm("Buka lagi " + s.nota + " - " + s.pelanggan + "?\n\n" +
+      (s.status === "Diambil"
+        ? "Pelunasan dibatalkan: uang pelunasan dihapus dari kas dan stok sparepart dikembalikan. Status kembali ke Selesai."
+        : "Pembatalan dibatalkan: uang pengembalian DP / biaya cek dihapus dari kas. Status kembali ke Diterima."))) return;
+  sedangDihapus.add(id);
+  const { data, error } = await kirim(db.rpc("service_buka_lagi", { p_id: id }));
+  sedangDihapus.delete(id);
+  if (error) return alert("Gagal membuka lagi " + s.nota + ": " + teksGagal(error));
+  terapkanBarisService(data);
+  try { await muatData(); } catch (err) { /* tampilkan data terakhir */ }
+  renderService();
+  pesanService("srv-pesan", s.nota + " dibuka lagi.");
+  jadwalMuatUlang();
+}
+
 /* ===== 8. MULAI APLIKASI ===== */
 $("form-login").addEventListener("submit", prosesLogin);
 $("login-username").addEventListener("input", () => { $("login-error").hidden = true; });
@@ -1264,6 +1776,27 @@ $("file-restore").addEventListener("change", (e) => {
 document.querySelectorAll(".input-rupiah").forEach((el) => {
   el.addEventListener("input", () => formatKetikRupiah(el));
 });
+
+/* Service */
+$("form-service").addEventListener("submit", simpanServiceMasuk);
+$("form-service").addEventListener("reset", () => {
+  setTimeout(() => {
+    if (resetSetelahSimpanService) { resetSetelahSimpanService = false; return; }
+    pesanService("srv-pesan", "");
+  }, 0);
+});
+$("srv-cari").addEventListener("input", renderService);
+$("srv-saring").addEventListener("change", renderService);
+$("form-lunas").addEventListener("submit", simpanPelunasan);
+$("lunas-tambah").addEventListener("click", tambahSparepart);
+$("lunas-qty").addEventListener("keydown", (e) => { // Enter di kolom jumlah = Tambah, bukan simpan
+  if (e.key === "Enter") { e.preventDefault(); tambahSparepart(); }
+});
+$("lunas-jasa").addEventListener("input", perbaruiPanelService);
+$("lunas-tutup").addEventListener("click", tutupPanelService);
+$("form-batal").addEventListener("submit", simpanPembatalan);
+$("batal-cek").addEventListener("input", perbaruiPanelService);
+$("batal-tutup").addEventListener("click", tutupPanelService);
 
 /* Stok */
 $("form-stok").addEventListener("submit", tambahBarang);

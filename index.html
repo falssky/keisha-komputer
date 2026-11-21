@@ -45,10 +45,10 @@
 
     <div class="layout">
 
-      <!-- SIDEBAR (hanya untuk admin) -->
+      <!-- SIDEBAR (menu bertanda data-peran="admin" hanya tampil untuk admin) -->
       <aside class="sidebar" id="sidebar" hidden>
         <nav>
-          <a href="#laporan" class="menu-item" data-nav="laporan">
+          <a href="#laporan" class="menu-item" data-nav="laporan" data-peran="admin">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <rect x="3" y="12" width="4" height="9"/>
               <rect x="10" y="3" width="4" height="18"/>
@@ -56,7 +56,7 @@
             </svg>
             <span>Laporan Penjualan</span>
           </a>
-          <a href="#stok" class="menu-item" data-nav="stok">
+          <a href="#stok" class="menu-item" data-nav="stok" data-peran="admin">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
               <path d="M12 2 3 7v10l9 5 9-5V7l-9-5Z"/>
               <path d="M3 7l9 5 9-5M12 12v10"/>
@@ -70,9 +70,15 @@
             </svg>
             <span>Input Kas</span>
           </a>
+          <a href="#service" class="menu-item" data-nav="service">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
+            </svg>
+            <span>Service</span>
+          </a>
         </nav>
 
-        <div class="sidebar-data">
+        <div class="sidebar-data" data-peran="admin">
           <p class="sidebar-label">Data</p>
           <button type="button" class="menu-item menu-aksi" id="btn-backup">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg>
@@ -291,6 +297,155 @@
                   <tr><th>Jam</th><th>Jenis</th><th>Kategori</th><th>Keterangan</th><th>Nominal</th><th>Aksi</th></tr>
                 </thead>
                 <tbody id="kas-daftar"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===== SERVICE (karyawan & admin) ===== -->
+        <section class="view view-kas" id="view-service" hidden>
+
+          <h2 class="kas-title">Service</h2>
+
+          <div class="cards">
+            <div class="card card-blue">
+              <span class="card-label">Sedang Dikerjakan</span>
+              <strong class="card-value" id="srv-proses">0</strong>
+            </div>
+            <div class="card card-green">
+              <span class="card-label">Siap Diambil</span>
+              <strong class="card-value" id="srv-siap">0</strong>
+            </div>
+            <div class="card card-red">
+              <span class="card-label">Belum Dibayar Pelanggan</span>
+              <strong class="card-value" id="srv-sisa">Rp 0</strong>
+            </div>
+          </div>
+
+          <div class="form-card kas-form">
+            <h3 class="form-title"><span class="dot"></span>Service Masuk</h3>
+            <form id="form-service" autocomplete="off">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="srv-pelanggan">Nama Pelanggan</label>
+                  <input type="text" id="srv-pelanggan" required>
+                </div>
+                <div class="field">
+                  <label for="srv-hp">No. HP</label>
+                  <input type="text" id="srv-hp" inputmode="tel">
+                </div>
+                <div class="field">
+                  <label for="srv-perangkat">Perangkat</label>
+                  <input type="text" id="srv-perangkat" placeholder="Contoh: Laptop Asus X441" required>
+                </div>
+                <div class="field span-2">
+                  <label for="srv-keluhan">Keluhan</label>
+                  <input type="text" id="srv-keluhan" placeholder="Contoh: Mati total, kemungkinan IC power" required>
+                </div>
+                <div class="field">
+                  <label for="srv-kelengkapan">Kelengkapan</label>
+                  <input type="text" id="srv-kelengkapan" placeholder="Contoh: charger, tas">
+                </div>
+                <div class="field">
+                  <label for="srv-perkiraan">Perkiraan Biaya (Rp)</label>
+                  <input type="text" id="srv-perkiraan" class="input-rupiah" inputmode="numeric" autocomplete="off" placeholder="Rp 0">
+                </div>
+                <div class="field">
+                  <label for="srv-dp">DP (Rp)</label>
+                  <input type="text" id="srv-dp" class="input-rupiah" inputmode="numeric" autocomplete="off" placeholder="Rp 0">
+                </div>
+              </div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">
+                  <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+                  Simpan Service
+                </button>
+                <button type="reset" class="btn btn-secondary">Reset</button>
+                <span class="kas-pesan" id="srv-pesan" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+          </div>
+
+          <!-- Pelunasan (muncul saat tombol Lunasi di daftar diklik) -->
+          <div class="form-card kas-form srv-panel" id="srv-panel-lunas" hidden>
+            <h3 class="form-title"><span class="dot"></span><span id="lunas-judul">Pelunasan</span></h3>
+            <form id="form-lunas" autocomplete="off">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="lunas-jasa">Biaya Jasa (Rp)</label>
+                  <input type="text" id="lunas-jasa" class="input-rupiah" inputmode="numeric" autocomplete="off" placeholder="Rp 0" required>
+                </div>
+                <div class="field">
+                  <label for="lunas-barang">Sparepart Dipakai (dari stok)</label>
+                  <select id="lunas-barang"></select>
+                </div>
+                <div class="field">
+                  <label for="lunas-qty">Jumlah</label>
+                  <div class="srv-baris">
+                    <input type="number" id="lunas-qty" min="1" step="1" value="1">
+                    <button type="button" class="btn btn-secondary" id="lunas-tambah">Tambah</button>
+                  </div>
+                </div>
+              </div>
+              <table class="table table-sparepart" id="lunas-tabel" hidden>
+                <thead>
+                  <tr><th>Sparepart</th><th>Jumlah</th><th>Harga</th><th>Aksi</th></tr>
+                </thead>
+                <tbody id="lunas-sparepart"></tbody>
+              </table>
+              <div class="srv-ringkasan" id="lunas-ringkasan"></div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Simpan Pelunasan &amp; Serahkan Barang</button>
+                <button type="button" class="btn btn-secondary" id="lunas-tutup">Tutup</button>
+                <span class="kas-pesan" id="lunas-pesan" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+          </div>
+
+          <!-- Pembatalan (muncul saat tombol Batal di daftar diklik) -->
+          <div class="form-card kas-form srv-panel srv-panel-batal" id="srv-panel-batal" hidden>
+            <h3 class="form-title"><span class="dot dot-merah"></span><span id="batal-judul">Batalkan Service</span></h3>
+            <form id="form-batal" autocomplete="off">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="batal-cek">Biaya Cek (Rp, jika ada)</label>
+                  <input type="text" id="batal-cek" class="input-rupiah" inputmode="numeric" autocomplete="off" placeholder="Rp 0">
+                </div>
+                <div class="field span-2">
+                  <label for="batal-alasan">Alasan</label>
+                  <input type="text" id="batal-alasan" placeholder="Contoh: pelanggan tidak jadi, biaya terlalu mahal">
+                </div>
+              </div>
+              <div class="srv-ringkasan" id="batal-ringkasan"></div>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-merah">Batalkan Service</button>
+                <button type="button" class="btn btn-secondary" id="batal-tutup">Tutup</button>
+                <span class="kas-pesan" id="batal-pesan" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+          </div>
+
+          <div class="section kas-riwayat">
+            <h2>Daftar Service</h2>
+            <div class="srv-filter">
+              <div class="search-box">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+                <input type="text" id="srv-cari" placeholder="cari nama, nota, no HP, atau perangkat...">
+              </div>
+              <select id="srv-saring" aria-label="Saring status service">
+                <option value="aktif">Belum diambil</option>
+                <option value="Selesai">Siap diambil</option>
+                <option value="Diambil">Sudah diambil</option>
+                <option value="Batal">Dibatalkan</option>
+                <option value="semua">Semua</option>
+              </select>
+            </div>
+            <div class="panel">
+              <table class="table table-service">
+                <thead>
+                  <tr><th>Nota</th><th>Masuk</th><th>Pelanggan</th><th>Perangkat / Keluhan</th><th>Status</th><th>Pembayaran</th><th>Aksi</th></tr>
+                </thead>
+                <tbody id="srv-daftar"></tbody>
               </table>
             </div>
           </div>
