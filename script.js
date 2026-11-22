@@ -1974,6 +1974,47 @@ async function panggilAkun(nama, isi) {
   }
 }
 
+/* Tombol mata di kolom password: tampilkan / sembunyikan isian yang sedang diketik */
+const IKON_MATA = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
+const IKON_MATA_TUTUP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<path d="M3 3l18 18"/><path d="M10.6 5.1A10.9 10.9 0 0 1 12 5c6.5 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.2"/>' +
+  '<path d="M6.6 6.6C3.8 8.4 2 12 2 12s3.5 7 10 7a10 10 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+
+function aturLihatPassword(input, tombol, lihat) {
+  const label = lihat ? "Sembunyikan password" : "Tampilkan password";
+  input.type = lihat ? "text" : "password";
+  tombol.innerHTML = lihat ? IKON_MATA_TUTUP : IKON_MATA;
+  tombol.setAttribute("aria-label", label);
+  tombol.setAttribute("aria-pressed", String(lihat));
+  tombol.title = label;
+}
+
+function pasangTombolLihat(input) {
+  const wadah = document.createElement("div");
+  wadah.className = "input-password";
+  input.parentNode.insertBefore(wadah, input);
+  wadah.appendChild(input);
+  /* Saat terlihat (type text), HP tidak boleh mengubah huruf pertama jadi besar atau mengoreksi ejaan */
+  input.setAttribute("autocapitalize", "none");
+  input.setAttribute("autocorrect", "off");
+  input.spellcheck = false;
+
+  const tombol = document.createElement("button");
+  tombol.type = "button";
+  tombol.className = "btn-lihat";
+  tombol.addEventListener("click", () => aturLihatPassword(input, tombol, input.type === "password"));
+  wadah.appendChild(tombol);
+  aturLihatPassword(input, tombol, false);
+}
+
+/* Kembalikan semua kolom password di dalam wadah ke keadaan tersembunyi */
+function sembunyikanPassword(wadah) {
+  wadah.querySelectorAll(".input-password").forEach((w) => {
+    aturLihatPassword(w.querySelector("input"), w.querySelector(".btn-lihat"), false);
+  });
+}
+
 /* Teks kesalahan, atau "" bila password baru boleh dipakai */
 function cekPasswordBaru(baru, ulang, username) {
   if (baru.length < PASSWORD_MIN) return "Password minimal " + PASSWORD_MIN + " karakter.";
@@ -2100,6 +2141,7 @@ async function tambahAkunKaryawan(e) {
 
   if (error) return pesanAkun("tambah-pesan", teksGagal(error), true);
   ["akun-username", "akun-password", "akun-ulang"].forEach((id) => { $(id).value = ""; });
+  sembunyikanPassword($("form-tambah-akun"));
   const baru = data || {};
   pesanAkun("tambah-pesan", "Akun " + (baru.nama || username) + " berhasil dibuat. Login dengan username " + (baru.username || username) + ".");
   muatDaftarKaryawan();
@@ -2132,6 +2174,7 @@ async function gantiPasswordSaya(e) {
     return;
   }
   ["pw-lama", "pw-baru", "pw-ulang"].forEach((id) => { $(id).value = ""; });
+  sembunyikanPassword($("form-password"));
   pesanService("pw-pesan", "Password berhasil diganti. Pakai password baru saat masuk berikutnya.");
 }
 
@@ -2161,6 +2204,7 @@ async function resetPasswordKaryawan(e) {
   if (error) return pesanService("reset-pesan", teksGagal(error), true);
   $("reset-baru").value = "";
   $("reset-ulang").value = "";
+  sembunyikanPassword($("form-reset-pw"));
   pesanService("reset-pesan", "Password " + (data || username) + " berhasil direset. Beri tahu password barunya langsung ke karyawan.");
 }
 
@@ -2171,6 +2215,7 @@ function bersihkanAkun() {
   $("form-password").reset();
   $("form-reset-pw").reset();
   $("form-tambah-akun").reset();
+  sembunyikanPassword($("view-akun"));
   $("reset-akun").textContent = "";
   $("akun-daftar").textContent = "";
   $("akun-info").textContent = "";
@@ -2228,8 +2273,12 @@ $("batal-cek").addEventListener("input", perbaruiPanelService);
 $("batal-tutup").addEventListener("click", tutupPanelService);
 
 /* Ganti password */
+document.querySelectorAll('#view-akun input[type="password"]').forEach(pasangTombolLihat);
 $("form-password").addEventListener("submit", gantiPasswordSaya);
-$("form-password").addEventListener("reset", () => pesanService("pw-pesan", ""));
+$("form-password").addEventListener("reset", () => {
+  pesanService("pw-pesan", "");
+  sembunyikanPassword($("form-password"));
+});
 $("form-reset-pw").addEventListener("submit", resetPasswordKaryawan);
 ["pw-lama", "pw-baru", "pw-ulang"].forEach((id) => {
   $(id).addEventListener("input", () => { if (!sedangGantiPassword) pesanService("pw-pesan", ""); });
@@ -2238,7 +2287,10 @@ $("form-reset-pw").addEventListener("submit", resetPasswordKaryawan);
   $(id).addEventListener("input", () => { if (!sedangResetPassword) pesanService("reset-pesan", ""); });
 });
 $("form-tambah-akun").addEventListener("submit", tambahAkunKaryawan);
-$("form-tambah-akun").addEventListener("reset", () => pesanAkun("tambah-pesan", ""));
+$("form-tambah-akun").addEventListener("reset", () => {
+  pesanAkun("tambah-pesan", "");
+  sembunyikanPassword($("form-tambah-akun"));
+});
 ["akun-username", "akun-password", "akun-ulang"].forEach((id) => {
   $(id).addEventListener("input", () => { if (!sedangTambahAkun) pesanAkun("tambah-pesan", ""); });
 });

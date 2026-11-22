@@ -1033,6 +1033,53 @@ body {
 .status-aktif    { background: #0f3d1f; color: #4ade80; }
 .status-nonaktif { background: #3d1111; color: #ff6b6b; }
 
+/* Kolom password + tombol mata (tampilkan / sembunyikan) */
+.input-password {
+  position: relative;
+}
+
+.field .input-password input {
+  padding-right: 38px;
+}
+
+/* Edge punya tombol intip sendiri: disembunyikan agar tidak ada dua ikon */
+.input-password input::-ms-reveal,
+.input-password input::-ms-clear {
+  display: none;
+}
+
+.btn-lihat {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.btn-lihat:hover,
+.btn-lihat[aria-pressed="true"] {
+  color: var(--text);
+}
+
+.btn-lihat:focus-visible {
+  outline: 2px solid var(--primary);
+}
+
+.btn-lihat svg {
+  width: 16px;
+  height: 16px;
+}
+
 /* Layar sempit: lebar kolom mengikuti isi agar tombol Nonaktifkan tidak terpotong */
 @media (max-width: 768px) {
   .table-akun {
