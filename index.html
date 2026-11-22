@@ -76,6 +76,13 @@
             </svg>
             <span>Service</span>
           </a>
+          <a href="#akun" class="menu-item" data-nav="akun">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="4" y="11" width="16" height="10" rx="2"/>
+              <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+            </svg>
+            <span>Ganti Password</span>
+          </a>
         </nav>
 
         <div class="sidebar-data" data-peran="admin">
@@ -515,6 +522,65 @@
                 <tbody id="srv-daftar"></tbody>
               </table>
             </div>
+          </div>
+        </section>
+
+        <!-- ===== AKUN: GANTI PASSWORD (karyawan & admin) ===== -->
+        <section class="view view-kas" id="view-akun" hidden>
+
+          <h2 class="kas-title">Ganti Password</h2>
+          <p class="akun-info" id="akun-info"></p>
+
+          <div class="form-card kas-form">
+            <h3 class="form-title"><span class="dot"></span>Password Saya</h3>
+            <form id="form-password" autocomplete="off">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="pw-lama">Password Lama</label>
+                  <input type="password" id="pw-lama" autocomplete="current-password" required>
+                </div>
+                <div class="field">
+                  <label for="pw-baru">Password Baru</label>
+                  <input type="password" id="pw-baru" autocomplete="new-password" maxlength="72" required>
+                </div>
+                <div class="field">
+                  <label for="pw-ulang">Ulangi Password Baru</label>
+                  <input type="password" id="pw-ulang" autocomplete="new-password" maxlength="72" required>
+                </div>
+              </div>
+              <p class="akun-catatan">Minimal 8 karakter dan tidak sama dengan username. Perangkat lain yang masih login dengan akun ini akan keluar otomatis (paling lama 1 jam).</p>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Simpan Password</button>
+                <button type="reset" class="btn btn-secondary">Reset</button>
+                <span class="kas-pesan" id="pw-pesan" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+          </div>
+
+          <!-- Hanya admin: untuk karyawan yang lupa password -->
+          <div class="form-card kas-form akun-reset" data-peran="admin">
+            <h3 class="form-title"><span class="dot dot-merah"></span>Reset Password Karyawan</h3>
+            <form id="form-reset-pw" autocomplete="off">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="reset-akun">Akun Karyawan</label>
+                  <select id="reset-akun" required></select>
+                </div>
+                <div class="field">
+                  <label for="reset-baru">Password Baru</label>
+                  <input type="password" id="reset-baru" autocomplete="new-password" maxlength="72" required>
+                </div>
+                <div class="field">
+                  <label for="reset-ulang">Ulangi Password Baru</label>
+                  <input type="password" id="reset-ulang" autocomplete="new-password" maxlength="72" required>
+                </div>
+              </div>
+              <p class="akun-catatan">Untuk karyawan yang lupa password. Setelah direset, karyawan masuk dengan password baru; perangkat yang masih login akan keluar otomatis (paling lama 1 jam).</p>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Reset Password</button>
+                <span class="kas-pesan" id="reset-pesan" role="status" aria-live="polite"></span>
+              </div>
+            </form>
           </div>
         </section>
 

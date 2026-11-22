@@ -28,9 +28,13 @@ const DOMAIN_AKUN = "@keisha.local"; // username "admin" -> admin@keisha.local (
 
 /* Halaman yang boleh dibuka tiap peran (yang pertama = halaman awal) */
 const AKSES = {
-  admin:    ["laporan", "stok", "kas", "service"],
-  karyawan: ["kas", "service"],
+  admin:    ["laporan", "stok", "kas", "service", "akun"],
+  karyawan: ["kas", "service", "akun"],
 };
+
+/* Aturan password baru. Aturan yang sama dipasang di database (_cek_password_baru). */
+const PASSWORD_MIN = 8;
+const PASSWORD_MAKS_BYTE = 72;
 
 /* Data versi lama (sebelum Supabase) yang mungkin masih tersimpan di browser ini */
 const KEY_TRANSAKSI_LAMA = "keisha_transaksi";
@@ -430,6 +434,7 @@ function akhiriSesi() {
   dataTransaksi = [];
   dataService = [];
   panelService = null;
+  bersihkanAkun();
 }
 
 /* Halaman yang diminta lewat alamat (#laporan, #stok, #kas), dicek hak akses */
@@ -443,7 +448,7 @@ function pindahHalaman() {
     try { history.replaceState(null, "", "#" + halaman); } catch (e) { location.hash = halaman; }
   }
 
-  ["laporan", "stok", "kas", "service"].forEach((h) => { $("view-" + h).hidden = h !== halaman; });
+  ["laporan", "stok", "kas", "service", "akun"].forEach((h) => { $("view-" + h).hidden = h !== halaman; });
   document.querySelectorAll("[data-nav]").forEach((a) => {
     a.classList.toggle("active", a.dataset.nav === halaman);
   });
@@ -452,6 +457,7 @@ function pindahHalaman() {
   if (halaman === "stok") renderStok();
   if (halaman === "kas") mulaiKas();
   if (halaman === "service") mulaiService();
+  if (halaman === "akun") mulaiAkun();
 }
 
 let sedangLogin = false;
@@ -1896,6 +1902,135 @@ async function bukaLagiService(id) {
   jadwalMuatUlang();
 }
 
+/* ===== 7b. AKUN - GANTI PASSWORD =====
+   Password diganti lewat fungsi database: password lama dicek di server,
+   lalu sesi login di perangkat lain dicabut (akun karyawan yang direset: semua perangkat). */
+let sedangGantiPassword = false;
+let sedangResetPassword = false;
+let versiDaftarKaryawan = 0;
+
+/* Panggil fungsi akun di database; tidak pernah melempar error.
+   Tidak lewat kirim() karena tidak mengubah data kasir. */
+async function panggilAkun(nama, isi) {
+  try {
+    return await db.rpc(nama, isi);
+  } catch (e) {
+    return { data: null, error: e };
+  }
+}
+
+/* Teks kesalahan, atau "" bila password baru boleh dipakai */
+function cekPasswordBaru(baru, ulang, username) {
+  if (baru.length < PASSWORD_MIN) return "Password baru minimal " + PASSWORD_MIN + " karakter.";
+  if (new TextEncoder().encode(baru).length > PASSWORD_MAKS_BYTE) return "Password baru terlalu panjang (maksimal 72 karakter).";
+  if (baru.toLowerCase() === String(username || "").toLowerCase()) return "Password tidak boleh sama dengan username.";
+  if (baru !== ulang) return "Ulangi Password Baru belum sama dengan Password Baru.";
+  return "";
+}
+
+function mulaiAkun() {
+  const info = $("akun-info");
+  const nama = document.createElement("strong");
+  nama.textContent = sesi.nama;
+  info.textContent = "Login sebagai ";
+  info.append(nama, " (username: " + sesi.user + ")");
+  if (sesi.role === "admin") muatDaftarKaryawan();
+}
+
+async function muatDaftarKaryawan() {
+  const pilih = $("reset-akun");
+  const sebelumnya = pilih.value;
+  const versi = ++versiDaftarKaryawan;
+  const { data, error } = await panggilAkun("daftar_karyawan");
+  if (versi !== versiDaftarKaryawan || !sesi || sesi.role !== "admin") return;
+
+  pilih.textContent = "";
+  const opsi = (value, teks) => {
+    const o = document.createElement("option");
+    o.value = value;
+    o.textContent = teks;
+    pilih.appendChild(o);
+  };
+  if (error) {
+    opsi("", "(Gagal memuat daftar akun)");
+    pesanService("reset-pesan", teksGagal(error), true);
+    return;
+  }
+  if (!data || !data.length) return opsi("", "(Belum ada akun karyawan)");
+  data.forEach((a) => opsi(a.username, a.nama + " (" + a.username + ")"));
+  if (data.some((a) => a.username === sebelumnya)) pilih.value = sebelumnya;
+}
+
+async function gantiPasswordSaya(e) {
+  e.preventDefault();
+  if (!sesi || sedangGantiPassword) return;
+  const lama = $("pw-lama").value;
+  const baru = $("pw-baru").value;
+  const ulang = $("pw-ulang").value;
+
+  if (!lama || !baru || !ulang) return pesanService("pw-pesan", "Lengkapi semua kolom password.", true);
+  const salah = cekPasswordBaru(baru, ulang, sesi.user);
+  if (salah) return pesanService("pw-pesan", salah, true);
+  if (baru === lama) return pesanService("pw-pesan", "Password baru harus berbeda dari password lama.", true);
+
+  sedangGantiPassword = true;
+  pesanService("pw-pesan", "Menyimpan...");
+  const { error } = await panggilAkun("ganti_password", { p_lama: lama, p_baru: baru });
+  sedangGantiPassword = false;
+  if (!sesi) return; // sudah logout saat menunggu
+
+  if (error) {
+    pesanService("pw-pesan", teksGagal(error), true);
+    if (/lama salah/i.test(error.message || "")) {
+      $("pw-lama").value = "";
+      $("pw-lama").focus();
+    }
+    return;
+  }
+  ["pw-lama", "pw-baru", "pw-ulang"].forEach((id) => { $(id).value = ""; });
+  pesanService("pw-pesan", "Password berhasil diganti. Pakai password baru saat masuk berikutnya.");
+}
+
+async function resetPasswordKaryawan(e) {
+  e.preventDefault();
+  if (!sesi || sesi.role !== "admin" || sedangResetPassword) return;
+  const pilih = $("reset-akun");
+  const username = pilih.value;
+  const baru = $("reset-baru").value;
+  const ulang = $("reset-ulang").value;
+
+  if (!username) return pesanService("reset-pesan", "Pilih akun karyawan.", true);
+  if (!baru || !ulang) return pesanService("reset-pesan", "Isi password baru dua kali.", true);
+  const salah = cekPasswordBaru(baru, ulang, username);
+  if (salah) return pesanService("reset-pesan", salah, true);
+
+  const label = pilih.options[pilih.selectedIndex].textContent;
+  if (!confirm("Reset password " + label + "?\n\n" +
+    "Karyawan harus masuk dengan password baru. Perangkat yang masih login akan keluar otomatis (paling lama 1 jam).")) return;
+
+  sedangResetPassword = true;
+  pesanService("reset-pesan", "Menyimpan...");
+  const { data, error } = await panggilAkun("reset_password_karyawan", { p_username: username, p_baru: baru });
+  sedangResetPassword = false;
+  if (!sesi) return;
+
+  if (error) return pesanService("reset-pesan", teksGagal(error), true);
+  $("reset-baru").value = "";
+  $("reset-ulang").value = "";
+  pesanService("reset-pesan", "Password " + (data || username) + " berhasil direset. Beri tahu password barunya langsung ke karyawan.");
+}
+
+/* Logout: jangan tinggalkan isian password di layar */
+function bersihkanAkun() {
+  versiDaftarKaryawan++;
+  $("form-password").reset();
+  $("form-reset-pw").reset();
+  $("reset-akun").textContent = "";
+  $("akun-info").textContent = "";
+  pesanService("pw-pesan", "");
+  pesanService("reset-pesan", "");
+}
+
 /* ===== 8. MULAI APLIKASI ===== */
 $("form-login").addEventListener("submit", prosesLogin);
 $("login-username").addEventListener("input", () => { $("login-error").hidden = true; });
@@ -1945,6 +2080,17 @@ $("lunas-tutup").addEventListener("click", tutupPanelService);
 $("form-batal").addEventListener("submit", simpanPembatalan);
 $("batal-cek").addEventListener("input", perbaruiPanelService);
 $("batal-tutup").addEventListener("click", tutupPanelService);
+
+/* Ganti password */
+$("form-password").addEventListener("submit", gantiPasswordSaya);
+$("form-password").addEventListener("reset", () => pesanService("pw-pesan", ""));
+$("form-reset-pw").addEventListener("submit", resetPasswordKaryawan);
+["pw-lama", "pw-baru", "pw-ulang"].forEach((id) => {
+  $(id).addEventListener("input", () => { if (!sedangGantiPassword) pesanService("pw-pesan", ""); });
+});
+["reset-akun", "reset-baru", "reset-ulang"].forEach((id) => {
+  $(id).addEventListener("input", () => { if (!sedangResetPassword) pesanService("reset-pesan", ""); });
+});
 
 /* Stok */
 $("form-stok").addEventListener("submit", tambahBarang);

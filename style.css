@@ -989,6 +989,38 @@ body {
   color: #ff6b6b;
 }
 
+/* ===== 8f. AKUN - GANTI PASSWORD ===== */
+.akun-info {
+  margin: -12px 0 20px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.akun-info strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.akun-catatan {
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.akun-reset {
+  margin-top: 22px;
+}
+
+/* Layar sempit: pesan turun ke baris berikutnya, tombol tidak terlipat */
+#view-akun .form-actions {
+  flex-wrap: wrap;
+}
+
+#view-akun .form-actions .btn {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
 /* ===== 9. RESPONSIF ===== */
 @media (max-width: 768px) {
   .layout {
