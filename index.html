@@ -557,8 +557,35 @@
             </form>
           </div>
 
+          <!-- Hanya admin: buat akun untuk karyawan baru -->
+          <div class="form-card kas-form akun-admin" data-peran="admin">
+            <h3 class="form-title"><span class="dot"></span>Tambah Akun Karyawan</h3>
+            <form id="form-tambah-akun" autocomplete="off">
+              <div class="form-grid">
+                <div class="field">
+                  <label for="akun-username">Username</label>
+                  <input type="text" id="akun-username" placeholder="Contoh: budi" maxlength="20" autocapitalize="none" spellcheck="false" required>
+                </div>
+                <div class="field">
+                  <label for="akun-password">Password</label>
+                  <input type="password" id="akun-password" autocomplete="new-password" maxlength="72" required>
+                </div>
+                <div class="field">
+                  <label for="akun-ulang">Ulangi Password</label>
+                  <input type="password" id="akun-ulang" autocomplete="new-password" maxlength="72" required>
+                </div>
+              </div>
+              <p class="akun-catatan">Username 3–20 karakter (huruf kecil, angka, boleh titik), dipakai untuk login dan menjadi nama di laporan: budi tampil sebagai Budi. Password minimal 8 karakter.</p>
+              <div class="form-actions">
+                <button type="submit" class="btn btn-primary">Tambah Akun</button>
+                <button type="reset" class="btn btn-secondary">Reset</button>
+                <span class="kas-pesan" id="tambah-pesan" role="status" aria-live="polite"></span>
+              </div>
+            </form>
+          </div>
+
           <!-- Hanya admin: untuk karyawan yang lupa password -->
-          <div class="form-card kas-form akun-reset" data-peran="admin">
+          <div class="form-card kas-form akun-admin" data-peran="admin">
             <h3 class="form-title"><span class="dot dot-merah"></span>Reset Password Karyawan</h3>
             <form id="form-reset-pw" autocomplete="off">
               <div class="form-grid">
@@ -581,6 +608,21 @@
                 <span class="kas-pesan" id="reset-pesan" role="status" aria-live="polite"></span>
               </div>
             </form>
+          </div>
+
+          <!-- Hanya admin: semua akun karyawan + Nonaktifkan / Aktifkan -->
+          <div class="section kas-riwayat" data-peran="admin">
+            <h2>Daftar Akun Karyawan</h2>
+            <p class="akun-catatan akun-catatan-daftar">Karyawan yang berhenti cukup dinonaktifkan: tidak bisa login lagi, tapi riwayat transaksinya tetap ada di laporan. Akun bisa diaktifkan lagi kapan saja.</p>
+            <p class="kas-pesan akun-pesan-daftar" id="daftar-akun-pesan" role="status" aria-live="polite"></p>
+            <div class="panel">
+              <table class="table table-akun">
+                <thead>
+                  <tr><th>Nama</th><th>Username</th><th>Status</th><th>Aksi</th></tr>
+                </thead>
+                <tbody id="akun-daftar"></tbody>
+              </table>
+            </div>
           </div>
         </section>
 

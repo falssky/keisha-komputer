@@ -368,7 +368,14 @@ function jadwalMuatUlang() {
     if (!sesi) return;
     if (operasiBerjalan > 0) return jadwalMuatUlang(); // tunggu simpanan yang masih berjalan
     let berhasil = false;
-    try { berhasil = await muatData(); } catch (e) { return; } // gagal: tetap pakai data terakhir
+    let profil = null;
+    try {
+      [berhasil, profil] = await Promise.all([muatData(), ambilProfil()]);
+    } catch (e) {
+      return; // gagal: tetap pakai data terakhir
+    }
+    if (!sesi) return;
+    if (!profil || profil.nonaktif) return logout(pesanTanpaAkses(profil)); // dinonaktifkan admin dari perangkat lain
     if (!berhasil) return jadwalMuatUlang();
     tampilkanUlang();
   }, 400);
@@ -392,11 +399,20 @@ function hentikanRealtime() {
 /* ===== 3. LOGIN, LOGOUT, PERPINDAHAN HALAMAN ===== */
 let sesi = null; // { user, nama, role }
 
-/* Profil akun yang sedang login (dibaca dari tabel profil, hanya baris miliknya) */
+/* Profil akun yang sedang login (dibaca dari tabel profil, hanya baris miliknya).
+   null = belum punya hak akses, { nonaktif: true } = akun sudah dinonaktifkan admin */
 async function ambilProfil() {
-  const { data, error } = await db.from("profil").select("username, nama, peran").maybeSingle();
+  const { data, error } = await db.from("profil").select("username, nama, peran, aktif").maybeSingle();
   if (error) throw error;
-  return data && AKSES[data.peran] ? { user: data.username, nama: data.nama, role: data.peran } : null;
+  if (!data || !AKSES[data.peran]) return null;
+  if (data.aktif === false) return { nonaktif: true };
+  return { user: data.username, nama: data.nama, role: data.peran };
+}
+
+const PESAN_NONAKTIF = "Akun ini sudah dinonaktifkan. Hubungi admin.";
+
+function pesanTanpaAkses(profil) {
+  return profil && profil.nonaktif ? PESAN_NONAKTIF : "Akun ini belum punya hak akses.";
 }
 
 function namaKaryawan() {
@@ -488,6 +504,7 @@ async function prosesLogin(e) {
     if (error) {
       if (error.status === 429) return gagal("Terlalu banyak percobaan. Tunggu sebentar lalu coba lagi.");
       if (error.code === "email_not_confirmed") return gagal("Akun belum dikonfirmasi. Buat ulang akun dengan mencentang Auto Confirm User.");
+      if (error.code === "user_banned") return gagal(PESAN_NONAKTIF);
       if (error.status === 400) {
         $("login-password").value = "";
         $("login-password").focus();
@@ -497,9 +514,9 @@ async function prosesLogin(e) {
     }
 
     const profil = await ambilProfil();
-    if (!profil) {
+    if (!profil || profil.nonaktif) {
       await db.auth.signOut({ scope: "local" });
-      return gagal("Akun ini belum punya hak akses.");
+      return gagal(pesanTanpaAkses(profil));
     }
     await muatData();
     sesi = profil;
@@ -514,10 +531,11 @@ async function prosesLogin(e) {
   tampilkanAplikasi();
 }
 
-function logout() {
+/* pesan (opsional): alasan keluar, mis. akun dinonaktifkan. Dari tombol Logout yang datang event, bukan teks. */
+function logout(pesan) {
   akhiriSesi();
   try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { location.hash = ""; }
-  tampilkanLogin();
+  tampilkanLogin(typeof pesan === "string" ? pesan : undefined);
   if (db) db.auth.signOut({ scope: "local" }).catch(() => {}); // "local": perangkat lain tetap login
 }
 
@@ -1902,12 +1920,49 @@ async function bukaLagiService(id) {
   jadwalMuatUlang();
 }
 
-/* ===== 7b. AKUN - GANTI PASSWORD =====
+/* ===== 7b. AKUN - GANTI PASSWORD & AKUN KARYAWAN =====
    Password diganti lewat fungsi database: password lama dicek di server,
-   lalu sesi login di perangkat lain dicabut (akun karyawan yang direset: semua perangkat). */
+   lalu sesi login di perangkat lain dicabut (akun karyawan yang direset: semua perangkat).
+   Admin juga mengelola akun karyawan di halaman ini:
+   - Tambah akun: lewat program server (Edge Function "tambah-karyawan"), karena
+     membuat akun login butuh kunci rahasia yang tidak boleh ada di website.
+   - Nonaktifkan / Aktifkan: fungsi database atur_akun_karyawan. Akun nonaktif tidak bisa
+     login dan langsung tidak bisa membaca/mencatat data; riwayat transaksinya tetap ada. */
 let sedangGantiPassword = false;
 let sedangResetPassword = false;
+let sedangTambahAkun = false;
+let sedangAturAkun = false;
 let versiDaftarKaryawan = 0;
+let dataAkun = []; // akun karyawan (khusus admin): { username, nama, aktif }
+
+/* Username akun baru. Aturan yang sama dicek di program server tambah-karyawan. */
+const POLA_USERNAME = /^[a-z0-9]+(\.[a-z0-9]+)*$/;
+
+/* Pesan di halaman akun (kelas lain pada elemen tetap dipertahankan) */
+function pesanAkun(id, teks, error) {
+  $(id).textContent = teks;
+  $(id).classList.toggle("error", !!error);
+}
+
+/* Panggil program server (Edge Function); pesan kesalahan dari server ikut dibaca.
+   Tidak pernah melempar error. */
+async function panggilFungsi(nama, isi) {
+  try {
+    const { data, error } = await db.functions.invoke(nama, { body: isi });
+    if (!error) return { data: data, error: null };
+    let pesan = "";
+    try {
+      const balasan = error.context && typeof error.context.json === "function" ? await error.context.json() : null;
+      pesan = balasan && balasan.pesan ? String(balasan.pesan) : "";
+    } catch (e) {
+      pesan = ""; // balasan bukan JSON
+    }
+    if (!pesan && error.name === "FunctionsFetchError") pesan = "Tidak bisa terhubung ke server. Periksa koneksi internet.";
+    return { data: null, error: { message: pesan || teksGagal(error) } };
+  } catch (e) {
+    return { data: null, error: e };
+  }
+}
 
 /* Panggil fungsi akun di database; tidak pernah melempar error.
    Tidak lewat kirim() karena tidak mengubah data kasir. */
@@ -1921,10 +1976,10 @@ async function panggilAkun(nama, isi) {
 
 /* Teks kesalahan, atau "" bila password baru boleh dipakai */
 function cekPasswordBaru(baru, ulang, username) {
-  if (baru.length < PASSWORD_MIN) return "Password baru minimal " + PASSWORD_MIN + " karakter.";
-  if (new TextEncoder().encode(baru).length > PASSWORD_MAKS_BYTE) return "Password baru terlalu panjang (maksimal 72 karakter).";
+  if (baru.length < PASSWORD_MIN) return "Password minimal " + PASSWORD_MIN + " karakter.";
+  if (new TextEncoder().encode(baru).length > PASSWORD_MAKS_BYTE) return "Password terlalu panjang (maksimal 72 karakter).";
   if (baru.toLowerCase() === String(username || "").toLowerCase()) return "Password tidak boleh sama dengan username.";
-  if (baru !== ulang) return "Ulangi Password Baru belum sama dengan Password Baru.";
+  if (baru !== ulang) return "Ulangi password belum sama dengan password yang diketik.";
   return "";
 }
 
@@ -1938,12 +1993,28 @@ function mulaiAkun() {
 }
 
 async function muatDaftarKaryawan() {
-  const pilih = $("reset-akun");
-  const sebelumnya = pilih.value;
   const versi = ++versiDaftarKaryawan;
   const { data, error } = await panggilAkun("daftar_karyawan");
   if (versi !== versiDaftarKaryawan || !sesi || sesi.role !== "admin") return;
 
+  if (error) {
+    pesanAkun("daftar-akun-pesan", teksGagal(error), true);
+    if (!dataAkun.length) {
+      isiPilihanReset("(Gagal memuat daftar akun)");
+      $("akun-daftar").textContent = "";
+      $("akun-daftar").appendChild(barisKosong(4, "Gagal memuat daftar akun"));
+    }
+    return;
+  }
+  dataAkun = data || [];
+  isiPilihanReset();
+  renderDaftarAkun();
+}
+
+/* Pilihan akun untuk Reset Password: hanya akun yang aktif */
+function isiPilihanReset(teksGagalMuat) {
+  const pilih = $("reset-akun");
+  const sebelumnya = pilih.value;
   pilih.textContent = "";
   const opsi = (value, teks) => {
     const o = document.createElement("option");
@@ -1951,14 +2022,87 @@ async function muatDaftarKaryawan() {
     o.textContent = teks;
     pilih.appendChild(o);
   };
-  if (error) {
-    opsi("", "(Gagal memuat daftar akun)");
-    pesanService("reset-pesan", teksGagal(error), true);
-    return;
+  if (teksGagalMuat) return opsi("", teksGagalMuat);
+  const aktif = dataAkun.filter((a) => a.aktif !== false);
+  if (!aktif.length) return opsi("", dataAkun.length ? "(Tidak ada akun karyawan aktif)" : "(Belum ada akun karyawan)");
+  aktif.forEach((a) => opsi(a.username, a.nama + " (" + a.username + ")"));
+  if (aktif.some((a) => a.username === sebelumnya)) pilih.value = sebelumnya;
+}
+
+function renderDaftarAkun() {
+  const tbody = $("akun-daftar");
+  tbody.textContent = "";
+  if (!dataAkun.length) return tbody.appendChild(barisKosong(4, "Belum ada akun karyawan"));
+
+  dataAkun.forEach((a) => {
+    const aktif = a.aktif !== false;
+    const tr = document.createElement("tr");
+    tr.appendChild(td(a.nama));
+    tr.appendChild(td(a.username));
+
+    const tdStatus = document.createElement("td");
+    const lencana = document.createElement("span");
+    lencana.className = "status " + (aktif ? "status-aktif" : "status-nonaktif");
+    lencana.textContent = aktif ? "Aktif" : "Nonaktif";
+    tdStatus.appendChild(lencana);
+    tr.appendChild(tdStatus);
+
+    const tdAksi = document.createElement("td");
+    tdAksi.appendChild(aktif
+      ? buatTombol("Nonaktifkan", "btn-hapus", () => aturAkunKaryawan(a, false))
+      : buatTombol("Aktifkan", "btn-aksi", () => aturAkunKaryawan(a, true)));
+    tr.appendChild(tdAksi);
+    tbody.appendChild(tr);
+  });
+}
+
+async function aturAkunKaryawan(a, aktif) {
+  if (!sesi || sesi.role !== "admin" || sedangAturAkun) return;
+  const label = a.nama + " (" + a.username + ")";
+  const tanya = aktif
+    ? "Aktifkan lagi akun " + label + "?\n\nKaryawan bisa login lagi dengan password terakhirnya."
+    : "Nonaktifkan akun " + label + "?\n\nKaryawan tidak bisa login lagi dan langsung tidak bisa melihat atau mencatat data. " +
+      "Riwayat transaksinya tetap ada di laporan. Akun bisa diaktifkan lagi kapan saja.";
+  if (!confirm(tanya)) return;
+
+  sedangAturAkun = true;
+  pesanAkun("daftar-akun-pesan", "Menyimpan...");
+  const { data, error } = await panggilAkun("atur_akun_karyawan", { p_username: a.username, p_aktif: aktif });
+  sedangAturAkun = false;
+  if (!sesi) return;
+
+  if (error) return pesanAkun("daftar-akun-pesan", teksGagal(error), true);
+  pesanAkun("daftar-akun-pesan", "Akun " + (data || a.nama) + (aktif ? " aktif lagi." : " dinonaktifkan."));
+  muatDaftarKaryawan();
+}
+
+async function tambahAkunKaryawan(e) {
+  e.preventDefault();
+  if (!sesi || sesi.role !== "admin" || sedangTambahAkun) return;
+  const username = $("akun-username").value.trim().toLowerCase();
+  const password = $("akun-password").value;
+  const ulang = $("akun-ulang").value;
+
+  if (username.length < 3 || username.length > 20 || !POLA_USERNAME.test(username)) {
+    return pesanAkun("tambah-pesan", "Username harus 3–20 karakter: huruf kecil, angka, atau titik di tengah (tanpa spasi).", true);
   }
-  if (!data || !data.length) return opsi("", "(Belum ada akun karyawan)");
-  data.forEach((a) => opsi(a.username, a.nama + " (" + a.username + ")"));
-  if (data.some((a) => a.username === sebelumnya)) pilih.value = sebelumnya;
+  if (username === "admin") return pesanAkun("tambah-pesan", "Username admin tidak boleh dipakai.", true);
+  if (dataAkun.some((a) => a.username === username)) return pesanAkun("tambah-pesan", "Username " + username + " sudah dipakai.", true);
+  if (!password || !ulang) return pesanAkun("tambah-pesan", "Isi password dua kali.", true);
+  const salah = cekPasswordBaru(password, ulang, username);
+  if (salah) return pesanAkun("tambah-pesan", salah, true);
+
+  sedangTambahAkun = true;
+  pesanAkun("tambah-pesan", "Membuat akun...");
+  const { data, error } = await panggilFungsi("tambah-karyawan", { username: username, password: password });
+  sedangTambahAkun = false;
+  if (!sesi) return;
+
+  if (error) return pesanAkun("tambah-pesan", teksGagal(error), true);
+  ["akun-username", "akun-password", "akun-ulang"].forEach((id) => { $(id).value = ""; });
+  const baru = data || {};
+  pesanAkun("tambah-pesan", "Akun " + (baru.nama || username) + " berhasil dibuat. Login dengan username " + (baru.username || username) + ".");
+  muatDaftarKaryawan();
 }
 
 async function gantiPasswordSaya(e) {
@@ -2023,12 +2167,14 @@ async function resetPasswordKaryawan(e) {
 /* Logout: jangan tinggalkan isian password di layar */
 function bersihkanAkun() {
   versiDaftarKaryawan++;
+  dataAkun = [];
   $("form-password").reset();
   $("form-reset-pw").reset();
+  $("form-tambah-akun").reset();
   $("reset-akun").textContent = "";
+  $("akun-daftar").textContent = "";
   $("akun-info").textContent = "";
-  pesanService("pw-pesan", "");
-  pesanService("reset-pesan", "");
+  ["pw-pesan", "reset-pesan", "tambah-pesan", "daftar-akun-pesan"].forEach((id) => pesanAkun(id, ""));
 }
 
 /* ===== 8. MULAI APLIKASI ===== */
@@ -2090,6 +2236,11 @@ $("form-reset-pw").addEventListener("submit", resetPasswordKaryawan);
 });
 ["reset-akun", "reset-baru", "reset-ulang"].forEach((id) => {
   $(id).addEventListener("input", () => { if (!sedangResetPassword) pesanService("reset-pesan", ""); });
+});
+$("form-tambah-akun").addEventListener("submit", tambahAkunKaryawan);
+$("form-tambah-akun").addEventListener("reset", () => pesanAkun("tambah-pesan", ""));
+["akun-username", "akun-password", "akun-ulang"].forEach((id) => {
+  $(id).addEventListener("input", () => { if (!sedangTambahAkun) pesanAkun("tambah-pesan", ""); });
 });
 
 /* Stok */
@@ -2153,9 +2304,9 @@ async function mulai() {
     const { data } = await db.auth.getSession();
     if (!data.session) return tampilkanLogin();
     const profil = await ambilProfil();
-    if (!profil) {
+    if (!profil || profil.nonaktif) {
       await db.auth.signOut({ scope: "local" });
-      return tampilkanLogin();
+      return tampilkanLogin(profil ? PESAN_NONAKTIF : undefined);
     }
     await muatData();
     sesi = profil;

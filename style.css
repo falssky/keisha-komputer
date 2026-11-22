@@ -1007,8 +1007,48 @@ body {
   color: var(--text-muted);
 }
 
-.akun-reset {
+.akun-admin {
   margin-top: 22px;
+}
+
+.akun-catatan-daftar {
+  margin: -4px 0 10px;
+}
+
+.akun-pesan-daftar {
+  margin: 0 0 10px;
+}
+
+.akun-pesan-daftar:empty {
+  display: none;
+}
+
+.table-akun thead th:nth-child(3),
+.table-akun tbody td:nth-child(3),
+.table-akun thead th:last-child,
+.table-akun tbody td:last-child {
+  text-align: center;
+}
+
+.status-aktif    { background: #0f3d1f; color: #4ade80; }
+.status-nonaktif { background: #3d1111; color: #ff6b6b; }
+
+/* Layar sempit: lebar kolom mengikuti isi agar tombol Nonaktifkan tidak terpotong */
+@media (max-width: 768px) {
+  .table-akun {
+    table-layout: auto;
+  }
+
+  .table-akun thead th,
+  .table-akun tbody td {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .table-akun .status,
+  .table-akun button {
+    white-space: nowrap;
+  }
 }
 
 /* Layar sempit: pesan turun ke baris berikutnya, tombol tidak terlipat */
