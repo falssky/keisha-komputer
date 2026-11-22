@@ -1,5 +1,5 @@
 /* ==========================================================
-   KEISHA KOMPUTER - SCRIPT
+   KHALYSA KOMPUTER - SCRIPT
    Daftar isi:
      1. Pengaturan (Supabase, hak akses, kategori)
      2. Fungsi bantu
@@ -24,7 +24,7 @@
 /* ===== 1. PENGATURAN ===== */
 const SUPABASE_URL = "https://crzwbshhdbykvhohdouk.supabase.co";
 const SUPABASE_KEY = "sb_publishable_di_W3KjljZTMemZweWj6qA_dcZ20CX_"; // kunci publik
-const DOMAIN_AKUN = "@keisha.local"; // username "admin" -> admin@keisha.local
+const DOMAIN_AKUN = "@keisha.local"; // username "admin" -> admin@keisha.local (nama teknis akun, jangan diganti)
 
 /* Halaman yang boleh dibuka tiap peran (yang pertama = halaman awal) */
 const AKSES = {
@@ -593,7 +593,7 @@ function renderLaporan() {
   $("lap-omset").textContent = formatRupiah(masuk);
   $("lap-keluar").textContent = formatRupiah(keluar);
   $("lap-laba").textContent = formatRupiah(hitungLaba(data).laba);
-  $("lap-cetak-judul").textContent = "Laporan Penjualan - Keisha Komputer | Periode: " + lap.label;
+  $("lap-cetak-judul").textContent = "Laporan Penjualan - KHALYSA KOMPUTER | Periode: " + lap.label;
 
   /* Per metode bayar: Tunai dicocokkan dengan uang di laci, QRIS & Transfer dengan mutasi rekening */
   const perMetode = $("lap-metode");
@@ -816,7 +816,7 @@ function eksporExcel() {
     nama: "Rekap Per Hari",
     lebar: [26, 18, 18, 18],
     baris: [
-      [B("Laporan Penjualan - Keisha Komputer")],
+      [B("Laporan Penjualan - KHALYSA KOMPUTER")],
       [T("Periode: " + lap.label)],
       [],
       [B("Tanggal"), B("Pemasukan"), B("Pengeluaran"), B("Selisih")],
@@ -844,7 +844,7 @@ function eksporExcel() {
        T(t.metode || "Tunai"), Rp(t.nominal)])),
   };
 
-  unduh("laporan-keisha-" + hariIni() + ".xlsx", buatXlsx([sheetRekap, sheetDetail]));
+  unduh("laporan-khalysa-" + hariIni() + ".xlsx", buatXlsx([sheetRekap, sheetDetail]));
 }
 
 function cetakPdf() {
@@ -856,14 +856,14 @@ function cetakPdf() {
 async function backupData() {
   try { await muatData(); } catch (e) { return alert("Gagal mengambil data terbaru: " + teksGagal(e)); }
   const isi = {
-    app: "keisha-komputer",
+    app: "keisha-komputer", // penanda file backup; jangan diganti agar backup lama tetap bisa di-restore
     versi: 1,
     dibuat: new Date().toISOString(),
     transaksi: ambilTransaksi(),
     stok: ambilStok(),
     service: dataService,
   };
-  unduh("backup-keisha-" + hariIni() + ".json", new Blob([JSON.stringify(isi, null, 2)], { type: "application/json" }));
+  unduh("backup-khalysa-" + hariIni() + ".json", new Blob([JSON.stringify(isi, null, 2)], { type: "application/json" }));
 }
 
 function bersihkanBackup(obj) {
@@ -987,7 +987,7 @@ function tawarkanDataLama() {
     "Unduh sebagai file backup? Setelah itu masukkan ke database lewat menu Restore Data.");
   if (unduhSekarang) {
     const isi = { app: "keisha-komputer", versi: 1, dibuat: new Date().toISOString(), transaksi: transaksi, stok: stok };
-    unduh("backup-data-lama-keisha-" + hariIni() + ".json", new Blob([JSON.stringify(isi, null, 2)], { type: "application/json" }));
+    unduh("backup-data-lama-khalysa-" + hariIni() + ".json", new Blob([JSON.stringify(isi, null, 2)], { type: "application/json" }));
     tulis(penyimpanan, KEY_DATA_LAMA_SELESAI, true);
     return;
   }
