@@ -45,6 +45,12 @@ const KATEGORI_KAS = {
 /* Kategori yang mengurangi stok barang saat dicatat */
 const KATEGORI_BARANG = ["Penjualan Barang", "Penjualan Sparepart"];
 
+/* Jenis barang di stok: Barang (dijual utuh) atau Sparepart (komponen perbaikan).
+   Penjualan Barang hanya memakai stok Barang, Penjualan Sparepart & pelunasan service hanya stok Sparepart.
+   Aturan yang sama dipasang di database. */
+const JENIS_STOK = ["Barang", "Sparepart"];
+const JENIS_UNTUK_PENJUALAN = { "Penjualan Barang": "Barang", "Penjualan Sparepart": "Sparepart" };
+
 /* Pengeluaran yang hanya boleh dicatat admin (pemilik). Aturan yang sama dipasang di database. */
 const KATEGORI_KHUSUS_ADMIN = ["Gaji", "Pembelian Stok"];
 
@@ -1072,11 +1078,16 @@ async function tambahBarang(e) {
     $("stok-nama").reportValidity();
     return;
   }
+  const kategori = $("stok-kategori").value;
+  if (JENIS_STOK.indexOf(kategori) === -1) {
+    $("stok-kategori").reportValidity(); // belum memilih Barang / Sparepart
+    return;
+  }
   if (sedangTambahBarang) return; // tombol diklik dua kali: jangan tersimpan dobel
   sedangTambahBarang = true;
   const { data, error } = await kirim(db.from("stok").insert({
     nama: nama,
-    kategori: $("stok-kategori").value.trim(),
+    kategori: kategori,
     stok: Number($("stok-jumlah").value) || 0,
     harga_beli: angkaRupiah($("stok-beli")) || 0,
     harga_jual: angkaRupiah($("stok-jual")) || 0,
@@ -1155,14 +1166,30 @@ function isiPilihanBarang() {
   kosong.textContent = "(Bukan dari stok - isi manual)";
   pilih.appendChild(kosong);
 
-  ambilStok().forEach((b) => {
+  const tambahOpsi = (wadah, b) => {
     const o = document.createElement("option");
     o.value = String(b.id);
     /* Penjualan: tampilkan harga jual. Pembelian: tampilkan harga beli */
     o.textContent = b.nama + " (stok " + b.stok + ") - " + formatRupiah(mode === "beli" ? b.hargaBeli : b.hargaJual);
     if (mode === "jual" && b.stok <= 0) o.disabled = true; // barang habis tidak bisa dijual, tapi bisa dibeli
-    pilih.appendChild(o);
-  });
+    wadah.appendChild(o);
+  };
+
+  if (mode === "jual") {
+    /* Penjualan Barang: hanya stok Barang. Penjualan Sparepart: hanya stok Sparepart */
+    const jenis = JENIS_UNTUK_PENJUALAN[$("kas-kategori").value];
+    ambilStok().filter((b) => b.kategori === jenis).forEach((b) => tambahOpsi(pilih, b));
+  } else {
+    /* Pembelian stok: semua barang, dikelompokkan Barang & Sparepart */
+    JENIS_STOK.forEach((jenis) => {
+      const isi = ambilStok().filter((b) => b.kategori === jenis);
+      if (isi.length === 0) return;
+      const grup = document.createElement("optgroup");
+      grup.label = jenis;
+      isi.forEach((b) => tambahOpsi(grup, b));
+      pilih.appendChild(grup);
+    });
+  }
 
   pilih.value = sebelumnya;
   if (pilih.value !== sebelumnya) { // barang yang dipilih sudah dihapus dari stok
@@ -1652,9 +1679,10 @@ function isiPilihanSparepart() {
   pilih.innerHTML = "";
   const kosong = document.createElement("option");
   kosong.value = "";
-  kosong.textContent = dataStok.length ? "(Pilih sparepart)" : "(Stok masih kosong)";
+  const sparepart = dataStok.filter((b) => b.kategori === "Sparepart"); // Barang tidak dipakai untuk service
+  kosong.textContent = sparepart.length ? "(Pilih sparepart)" : "(Belum ada sparepart di stok)";
   pilih.appendChild(kosong);
-  dataStok.forEach((b) => {
+  sparepart.forEach((b) => {
     const o = document.createElement("option");
     o.value = String(b.id);
     o.textContent = b.nama + " (stok " + b.stok + ") - " + formatRupiah(b.hargaJual);
@@ -1667,7 +1695,7 @@ function isiPilihanSparepart() {
 
 function tambahSparepart() {
   if (!panelService || panelService.jenis !== "lunas") return;
-  const b = dataStok.find((x) => String(x.id) === $("lunas-barang").value);
+  const b = dataStok.find((x) => String(x.id) === $("lunas-barang").value && x.kategori === "Sparepart");
   const qty = Number($("lunas-qty").value);
   if (!b) return pesanService("lunas-pesan", "Pilih sparepart dulu.", true);
   if (!Number.isInteger(qty) || qty < 1) return pesanService("lunas-pesan", "Jumlah sparepart minimal 1.", true);

@@ -187,16 +187,20 @@
           </div>
 
           <div class="form-card">
-            <h3 class="form-title"><span class="dot"></span>Form Input Barang / Jasa Baru</h3>
+            <h3 class="form-title"><span class="dot"></span>Form Input Barang / Sparepart Baru</h3>
             <form id="form-stok" autocomplete="off">
               <div class="form-grid">
                 <div class="field span-2">
                   <label for="stok-nama">Nama Barang</label>
-                  <input type="text" id="stok-nama" required>
+                  <input type="text" id="stok-nama" placeholder="Contoh: Laptop Asus Zenbook 14 / LCD Samsung A56" required>
                 </div>
                 <div class="field">
                   <label for="stok-kategori">Kategori</label>
-                  <input type="text" id="stok-kategori">
+                  <select id="stok-kategori" required>
+                    <option value="">Pilih Barang / Sparepart</option>
+                    <option value="Barang">Barang</option>
+                    <option value="Sparepart">Sparepart</option>
+                  </select>
                 </div>
                 <div class="field">
                   <label for="stok-jumlah">Jumlah Stok</label>
