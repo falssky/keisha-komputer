@@ -963,6 +963,32 @@ body {
   color: var(--text-muted);
 }
 
+/* ===== 8e. METODE BAYAR & KEMBALIAN ===== */
+.kas-metode {
+  margin: -10px 0 18px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.kas-metode strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.srv-bayar {
+  margin-top: 16px;
+}
+
+.field input.input-kembalian {
+  font-weight: 700;
+  color: #4ade80;
+  cursor: default;
+}
+
+.field input.input-kembalian.kurang {
+  color: #ff6b6b;
+}
+
 /* ===== 9. RESPONSIF ===== */
 @media (max-width: 768px) {
   .layout {

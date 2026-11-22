@@ -51,6 +51,9 @@ const KATEGORI_KHUSUS_ADMIN = ["Gaji", "Pembelian Stok"];
 /* Kategori pengeluaran yang menambah stok barang (admin) */
 const KATEGORI_PEMBELIAN = "Pembelian Stok";
 
+/* Cara bayar. Tunai = uang di laci, QRIS & Transfer = masuk rekening toko. Aturan yang sama dipasang di database. */
+const METODE_BAYAR = ["Tunai", "QRIS", "Transfer"];
+
 /* Status service. Diambil & Batal hanya lewat tombol Lunasi / Batal */
 const STATUS_AKTIF = ["Diterima", "Dikerjakan", "Selesai"];
 const STATUS_SERVICE = STATUS_AKTIF.concat(["Diambil", "Batal"]);
@@ -188,6 +191,36 @@ function jumlahPerJenis(jenis, daftar) {
   return daftar.filter((t) => t.jenis === jenis).reduce((n, t) => n + Number(t.nominal), 0);
 }
 
+/* Uang masuk, keluar, dan sisanya untuk tiap metode bayar */
+function rincianMetode(daftar) {
+  return METODE_BAYAR.map((m) => {
+    const isi = daftar.filter((t) => (t.metode || "Tunai") === m);
+    const masuk = jumlahPerJenis("Pemasukan", isi);
+    const keluar = jumlahPerJenis("Pengeluaran", isi);
+    return { metode: m, masuk: masuk, keluar: keluar, selisih: masuk - keluar };
+  });
+}
+
+/* Kolom Kembalian = uang diterima - yang harus dibayar.
+   Hasil: besar kembalian (minus = uangnya kurang), atau null bila uang diterima belum diisi. */
+function tampilkanKembalian(idDiterima, idKembalian, harusBayar) {
+  const diterima = angkaRupiah($(idDiterima));
+  const kolom = $(idKembalian);
+  kolom.classList.remove("kurang");
+  if (!(diterima >= 0) || !(harusBayar > 0)) {
+    kolom.value = "";
+    return null;
+  }
+  const sisa = diterima - harusBayar;
+  if (sisa < 0) {
+    kolom.value = "Kurang " + formatRupiah(-sisa);
+    kolom.classList.add("kurang");
+  } else {
+    kolom.value = formatRupiah(sisa);
+  }
+  return sisa;
+}
+
 function unduh(namaFile, blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -253,6 +286,7 @@ function dariBarisTransaksi(r) {
     keterangan: r.keterangan || "",
     nominal: Number(r.nominal) || 0,
     hpp: Number(r.hpp) || 0, // modal barang yang terjual (untuk hitung laba)
+    metode: METODE_BAYAR.indexOf(r.metode) !== -1 ? r.metode : "Tunai",
   };
   if (r.stok_id) { t.stokId = r.stok_id; t.qty = Number(r.qty) || 0; }
   if (r.service_id) { t.serviceId = r.service_id; t.serviceTahap = r.service_tahap || ""; } // uang dari halaman Service
@@ -555,6 +589,20 @@ function renderLaporan() {
   $("lap-laba").textContent = formatRupiah(hitungLaba(data).laba);
   $("lap-cetak-judul").textContent = "Laporan Penjualan - Keisha Komputer | Periode: " + lap.label;
 
+  /* Per metode bayar: Tunai dicocokkan dengan uang di laci, QRIS & Transfer dengan mutasi rekening */
+  const perMetode = $("lap-metode");
+  perMetode.innerHTML = "";
+  if (data.length === 0) {
+    perMetode.appendChild(barisKosong(4, "Tidak ada data pada periode ini."));
+  } else {
+    rincianMetode(data).forEach((r) => {
+      const tr = document.createElement("tr");
+      [r.metode, formatRupiah(r.masuk), formatRupiah(r.keluar), formatRupiah(r.selisih)]
+        .forEach((s) => tr.appendChild(td(s)));
+      perMetode.appendChild(tr);
+    });
+  }
+
   const rekap = $("lap-rekap");
   rekap.innerHTML = "";
   if (data.length === 0) {
@@ -571,11 +619,11 @@ function renderLaporan() {
   const detail = $("lap-detail");
   detail.innerHTML = "";
   if (data.length === 0) {
-    detail.appendChild(barisKosong(6, "Tidak ada data pada periode ini."));
+    detail.appendChild(barisKosong(7, "Tidak ada data pada periode ini."));
   } else {
     urutTerbaru(data).forEach((t) => {
       const tr = document.createElement("tr");
-      [formatTanggal(t.tanggal), t.karyawan || "-", t.jenis, t.kategori || "-", t.keterangan || "-", formatRupiah(t.nominal)]
+      [formatTanggal(t.tanggal), t.karyawan || "-", t.jenis, t.kategori || "-", t.keterangan || "-", t.metode || "Tunai", formatRupiah(t.nominal)]
         .forEach((s) => tr.appendChild(td(s)));
       detail.appendChild(tr);
     });
@@ -774,16 +822,20 @@ function eksporExcel() {
        [T("Modal barang terjual"), Rp(laba.modal)],
        [T("Biaya (tanpa beli stok)"), Rp(laba.biaya)],
        [B("LABA BERSIH"), SEL.rupiahTebal(laba.laba)],
-     ]),
+       [],
+       [B("Metode Bayar"), B("Pemasukan"), B("Pengeluaran"), B("Selisih")],
+     ])
+     .concat(rincianMetode(lap.data).map((r) => [T(r.metode), Rp(r.masuk), Rp(r.keluar), Rp(r.selisih)])),
   };
 
   const sheetDetail = {
     nama: "Detail Transaksi",
-    lebar: [16, 8, 14, 14, 20, 44, 18],
+    lebar: [16, 8, 14, 14, 20, 44, 12, 18],
     baris: [
-      [B("Tanggal"), B("Jam"), B("Karyawan"), B("Jenis"), B("Kategori"), B("Keterangan"), B("Nominal")],
+      [B("Tanggal"), B("Jam"), B("Karyawan"), B("Jenis"), B("Kategori"), B("Keterangan"), B("Metode"), B("Nominal")],
     ].concat(urutTerbaru(lap.data).map((t) =>
-      [SEL.tanggal(t.tanggal), T(t.jam || "-"), T(t.karyawan || "-"), T(t.jenis), T(t.kategori || "-"), T(t.keterangan || "-"), Rp(t.nominal)])),
+      [SEL.tanggal(t.tanggal), T(t.jam || "-"), T(t.karyawan || "-"), T(t.jenis), T(t.kategori || "-"), T(t.keterangan || "-"),
+       T(t.metode || "Tunai"), Rp(t.nominal)])),
   };
 
   unduh("laporan-keisha-" + hariIni() + ".xlsx", buatXlsx([sheetRekap, sheetDetail]));
@@ -826,6 +878,7 @@ function bersihkanBackup(obj) {
     };
     if (t.jam) baru.jam = String(t.jam);
     if (t.hpp !== undefined && t.hpp !== null && isFinite(Number(t.hpp))) baru.hpp = Number(t.hpp);
+    if (METODE_BAYAR.indexOf(t.metode) !== -1) baru.metode = t.metode; // backup lama tanpa metode = Tunai
     if (t.stokId !== undefined && t.stokId !== null && isFinite(Number(t.qty))) { baru.stokId = t.stokId; baru.qty = Number(t.qty); }
     if (t.serviceId) {
       baru.serviceId = String(t.serviceId);
@@ -1142,6 +1195,23 @@ function hitungBarang() {
   const baru = (beli ? "Beli " : "") + item.nama + " x" + jumlah;
   if (ket.value === "" || ket.value === ketOtomatis) ket.value = baru;
   ketOtomatis = baru;
+  hitungKembalianKas();
+}
+
+/* ----- Metode bayar & kembalian -----
+   Uang Diterima & Kembalian hanya untuk pemasukan tunai (alat bantu kasir, tidak disimpan) */
+const kembalianKasTampil = () => !$("kas-diterima-wrap").hidden;
+
+function aturMetodeKas() {
+  const tunai = $("kas-jenis").value === "Pemasukan" && $("kas-metode-bayar").value === "Tunai";
+  $("kas-diterima-wrap").hidden = !tunai;
+  $("kas-kembalian-wrap").hidden = !tunai;
+  hitungKembalianKas();
+}
+
+function hitungKembalianKas() {
+  if (!kembalianKasTampil()) return null;
+  return tampilkanKembalian("kas-diterima", "kas-kembalian", angkaRupiah($("kas-nominal")));
 }
 
 function renderKas() {
@@ -1160,6 +1230,16 @@ function renderKas() {
   $("kas-keluar").textContent = formatRupiah(keluar);
   $("kas-selisih").textContent = formatRupiah(masuk - keluar);
 
+  /* Sisa uang per metode: Tunai = yang seharusnya ada di laci */
+  const perMetode = $("kas-metode");
+  perMetode.textContent = "";
+  rincianMetode(data).forEach((r, i) => {
+    perMetode.appendChild(document.createTextNode((i ? " · " : "") + r.metode + ": "));
+    const angka = document.createElement("strong");
+    angka.textContent = formatRupiah(r.selisih);
+    perMetode.appendChild(angka);
+  });
+
   const judul = admin ? "Transaksi" : "Transaksi Saya";
   $("kas-judul-riwayat").textContent =
     tanggal === hariIni() ? judul + " Hari Ini" : judul + " (" + formatTanggal(tanggal) + ")";
@@ -1176,7 +1256,7 @@ function renderKas() {
     tr.appendChild(td(t.jenis, t.jenis === "Pemasukan" ? "jenis-masuk" : "jenis-keluar"));
     tr.appendChild(td(t.kategori || "-"));
     tr.appendChild(td((t.keterangan || "-") + (admin ? " · " + (t.karyawan || "-") : ""))); // admin: tampilkan siapa pencatatnya
-    tr.appendChild(td(formatRupiah(t.nominal)));
+    tr.appendChild(tdDuaBaris(formatRupiah(t.nominal), t.metode || "Tunai"));
     const tdAksi = document.createElement("td");
     if (t.serviceId) {
       /* Uang dari halaman Service hanya bisa dikoreksi lewat halaman Service */
@@ -1198,6 +1278,7 @@ function mulaiKas() {
   $("kas-tanggal").readOnly = !(sesi && sesi.role === "admin");
   isiKategoriKas();
   aturFieldBarang();
+  aturMetodeKas();
   pesanKas("");
   renderKas();
 }
@@ -1220,6 +1301,11 @@ async function simpanKas(e) {
   /* Tahun lebih dari 4 digit (salah ketik) merusak laporan & membuat backup ditolak */
   if (!POLA_TANGGAL.test(tanggal)) return pesanKas("Tanggal tidak valid. Periksa kembali tahunnya.", true);
 
+  const metode = $("kas-metode-bayar").value;
+  if (METODE_BAYAR.indexOf(metode) === -1) return pesanKas("Pilih metode bayar.", true);
+  const kembalian = hitungKembalianKas(); // null = uang diterima tidak diisi
+  if (kembalian !== null && kembalian < 0) return pesanKas("Uang diterima kurang " + formatRupiah(-kembalian) + ".", true);
+
   /* Barang dari stok: jual (stok berkurang) / beli (stok bertambah), diproses di database bersamaan dengan transaksi */
   const mode = jenisBarang();
   const item = mode ? barangTerpilih() : null;
@@ -1241,6 +1327,7 @@ async function simpanKas(e) {
     p_nominal: nominal,
     p_stok_id: item ? item.id : null,
     p_qty: qty,
+    p_metode: metode,
   }));
   sedangKirimKas = false;
 
@@ -1269,11 +1356,13 @@ async function simpanKas(e) {
   $("kas-jenis").value = jenis;
   isiKategoriKas();
   aturFieldBarang();
+  aturMetodeKas(); // metode kembali ke Tunai
   renderKas();
   $("kas-keterangan").focus();
-  pesanKas(item
+  pesanKas((item
     ? "Transaksi disimpan. Stok " + item.nama + (mode === "beli" ? " bertambah " : " berkurang ") + qty + "."
-    : "Transaksi berhasil disimpan.");
+    : "Transaksi berhasil disimpan.") +
+    (kembalian > 0 ? " Kembalian " + formatRupiah(kembalian) + "." : ""));
   jadwalMuatUlang();
 }
 
@@ -1479,6 +1568,7 @@ async function simpanServiceMasuk(e) {
     p_keluhan: $("srv-keluhan").value.trim(),
     p_perkiraan: angkaRupiah($("srv-perkiraan")) || 0,
     p_dp: angkaRupiah($("srv-dp")) || 0,
+    p_metode: $("srv-metode").value,
   };
   if (!isi.p_pelanggan || !isi.p_perangkat || !isi.p_keluhan) {
     return pesanService("srv-pesan", "Nama pelanggan, perangkat, dan keluhan wajib diisi.", true);
@@ -1501,7 +1591,7 @@ async function simpanServiceMasuk(e) {
   renderService();
   $("srv-pelanggan").focus();
   pesanService("srv-pesan", "Service " + s.nota + " disimpan." +
-    (isi.p_dp > 0 ? " DP " + formatRupiah(isi.p_dp) + " tercatat di kas." : "") +
+    (isi.p_dp > 0 ? " DP " + formatRupiah(isi.p_dp) + " (" + isi.p_metode + ") tercatat di kas." : "") +
     " Tulis nomor " + s.nota + " di nota pelanggan.");
   jadwalMuatUlang(); // ambil transaksi DP dari database
 }
@@ -1637,6 +1727,18 @@ function renderPanelLunas(s) {
   barisRingkasan(r, "Sudah dibayar (DP)", formatRupiah(s.dibayar));
   if (h.sisa >= 0) barisRingkasan(r, "Diterima dari pelanggan", formatRupiah(h.sisa), "total");
   else barisRingkasan(r, "Kembalikan ke pelanggan", formatRupiah(-h.sisa), "total");
+  aturMetodeLunas(h);
+}
+
+/* Metode bayar pelunasan dipakai untuk sisa tagihan, atau untuk mengembalikan kelebihan DP.
+   Uang Diterima & Kembalian hanya muncul saat pelanggan membayar tunai.
+   Hasil: besar kembalian, atau null bila tidak dihitung. */
+function aturMetodeLunas(h) {
+  $("lunas-metode-label").textContent = h.sisa < 0 ? "Dikembalikan Lewat" : "Metode Bayar";
+  const tunai = h.sisa > 0 && $("lunas-metode").value === "Tunai";
+  $("lunas-diterima-wrap").hidden = !tunai;
+  $("lunas-kembalian-wrap").hidden = !tunai;
+  return tunai ? tampilkanKembalian("lunas-diterima", "lunas-kembalian", h.sisa) : null;
 }
 
 async function simpanPelunasan(e) {
@@ -1647,9 +1749,17 @@ async function simpanPelunasan(e) {
   const jasa = angkaRupiah($("lunas-jasa"));
   if (!(jasa >= 0)) return pesanService("lunas-pesan", "Isi biaya jasa (ketik 0 kalau gratis).", true);
   const h = hitungPelunasan(s);
+  const metode = $("lunas-metode").value;
+  if (METODE_BAYAR.indexOf(metode) === -1) return pesanService("lunas-pesan", "Pilih metode bayar.", true);
+  const kembalian = aturMetodeLunas(h);
+  if (kembalian !== null && kembalian < 0) {
+    return pesanService("lunas-pesan", "Uang diterima kurang " + formatRupiah(-kembalian) + ".", true);
+  }
+  const lewat = h.sisa !== 0 ? " lewat " + metode : "";
   if (!confirm("Simpan pelunasan " + s.nota + " - " + s.pelanggan + "?\n\n" +
       "Total biaya: " + formatRupiah(h.total) + "\n" +
-      (h.sisa >= 0 ? "Terima dari pelanggan: " + formatRupiah(h.sisa) : "Kembalikan ke pelanggan: " + formatRupiah(-h.sisa)) +
+      (h.sisa >= 0 ? "Terima dari pelanggan: " + formatRupiah(h.sisa) : "Kembalikan ke pelanggan: " + formatRupiah(-h.sisa)) + lewat +
+      (kembalian > 0 ? "\nKembalian: " + formatRupiah(kembalian) : "") +
       "\n\nBarang ditandai sudah diambil.")) return;
 
   sedangProsesPanel = true;
@@ -1658,6 +1768,7 @@ async function simpanPelunasan(e) {
     p_id: s.id,
     p_biaya_jasa: jasa,
     p_sparepart: panelService.sparepart.map((x) => ({ stok_id: x.stokId, qty: x.qty })),
+    p_metode: metode,
   }));
   sedangProsesPanel = false;
   if (error) {
@@ -1673,7 +1784,8 @@ async function simpanPelunasan(e) {
   try { await muatData(); } catch (err) { /* tampilkan data terakhir */ }
   renderService();
   pesanService("srv-pesan", s.nota + " lunas dan sudah diserahkan. " +
-    (h.sisa >= 0 ? "Diterima " + formatRupiah(h.sisa) : "Dikembalikan " + formatRupiah(-h.sisa)) + " (tercatat di kas).");
+    (h.sisa >= 0 ? "Diterima " + formatRupiah(h.sisa) : "Dikembalikan " + formatRupiah(-h.sisa)) + lewat + " (tercatat di kas)." +
+    (kembalian > 0 ? " Kembalian " + formatRupiah(kembalian) + "." : ""));
   jadwalMuatUlang();
 }
 
@@ -1698,6 +1810,9 @@ function renderPanelBatal(s) {
   if (s.dibayar > cek) barisRingkasan(r, "Kembalikan ke pelanggan", formatRupiah(s.dibayar - cek), "total");
   else if (cek > s.dibayar) barisRingkasan(r, "Diterima dari pelanggan", formatRupiah(cek - s.dibayar), "total");
   else barisRingkasan(r, "Uang keluar/masuk", formatRupiah(0), "total");
+  /* Metode hanya perlu dipilih kalau ada uang yang keluar/masuk */
+  $("batal-metode-wrap").hidden = s.dibayar === cek;
+  $("batal-metode-label").textContent = s.dibayar > cek ? "Dikembalikan Lewat" : "Metode Bayar";
 }
 
 async function simpanPembatalan(e) {
@@ -1707,16 +1822,19 @@ async function simpanPembatalan(e) {
   if (!s) return;
   const cek = angkaRupiah($("batal-cek")) || 0;
   const selisih = s.dibayar - cek;
+  const metode = $("batal-metode").value;
+  if (METODE_BAYAR.indexOf(metode) === -1) return pesanService("batal-pesan", "Pilih metode bayar.", true);
+  const lewat = selisih !== 0 ? " lewat " + metode : "";
   if (!confirm("Batalkan " + s.nota + " - " + s.pelanggan + "?\n\n" +
-      (selisih > 0 ? "Kembalikan ke pelanggan: " + formatRupiah(selisih)
-        : selisih < 0 ? "Terima biaya cek: " + formatRupiah(-selisih)
+      (selisih > 0 ? "Kembalikan ke pelanggan: " + formatRupiah(selisih) + lewat
+        : selisih < 0 ? "Terima biaya cek: " + formatRupiah(-selisih) + lewat
         : "Tidak ada uang yang perlu dikembalikan.") +
       (sesi && sesi.role === "admin" ? "" : "\n\nSetelah dibatalkan, hanya admin yang bisa membukanya lagi."))) return;
 
   sedangProsesPanel = true;
   pesanService("batal-pesan", "Menyimpan...");
   const { data, error } = await kirim(db.rpc("service_batal", {
-    p_id: s.id, p_biaya_cek: cek, p_alasan: $("batal-alasan").value.trim(),
+    p_id: s.id, p_biaya_cek: cek, p_alasan: $("batal-alasan").value.trim(), p_metode: metode,
   }));
   sedangProsesPanel = false;
   if (error) return pesanService("batal-pesan", "Gagal: " + teksGagal(error), true);
@@ -1726,8 +1844,8 @@ async function simpanPembatalan(e) {
   try { await muatData(); } catch (err) { /* tampilkan data terakhir */ }
   renderService();
   pesanService("srv-pesan", s.nota + " dibatalkan." +
-    (selisih > 0 ? " DP " + formatRupiah(selisih) + " dikembalikan (tercatat di kas)."
-      : selisih < 0 ? " Biaya cek " + formatRupiah(-selisih) + " tercatat di kas." : ""));
+    (selisih > 0 ? " DP " + formatRupiah(selisih) + " dikembalikan" + lewat + " (tercatat di kas)."
+      : selisih < 0 ? " Biaya cek " + formatRupiah(-selisih) + lewat + " tercatat di kas." : ""));
   jadwalMuatUlang();
 }
 
@@ -1793,6 +1911,8 @@ $("lunas-qty").addEventListener("keydown", (e) => { // Enter di kolom jumlah = T
   if (e.key === "Enter") { e.preventDefault(); tambahSparepart(); }
 });
 $("lunas-jasa").addEventListener("input", perbaruiPanelService);
+$("lunas-metode").addEventListener("change", perbaruiPanelService);
+$("lunas-diterima").addEventListener("input", perbaruiPanelService);
 $("lunas-tutup").addEventListener("click", tutupPanelService);
 $("form-batal").addEventListener("submit", simpanPembatalan);
 $("batal-cek").addEventListener("input", perbaruiPanelService);
@@ -1810,11 +1930,15 @@ $("form-kas").addEventListener("reset", () => {
     setTanggalHariIni();
     isiKategoriKas();
     aturFieldBarang();
+    aturMetodeKas();
     renderKas();
     pesanKas("");
   }, 0);
 });
-$("kas-jenis").addEventListener("change", () => { isiKategoriKas(); aturFieldBarang(); });
+$("kas-jenis").addEventListener("change", () => { isiKategoriKas(); aturFieldBarang(); aturMetodeKas(); });
+$("kas-metode-bayar").addEventListener("change", aturMetodeKas);
+$("kas-nominal").addEventListener("input", hitungKembalianKas);
+$("kas-diterima").addEventListener("input", hitungKembalianKas);
 $("kas-kategori").addEventListener("change", aturFieldBarang);
 $("kas-barang").addEventListener("change", hitungBarang);
 $("kas-jumlah").addEventListener("input", hitungBarang);

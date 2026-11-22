@@ -142,6 +142,18 @@
           </div>
 
           <div class="section">
+            <h2>Rincian Per Metode Bayar</h2>
+            <div class="panel">
+              <table class="table table-rekap">
+                <thead>
+                  <tr><th>Metode</th><th>Pemasukan</th><th>Pengeluaran</th><th>Selisih</th></tr>
+                </thead>
+                <tbody id="lap-metode"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="section">
             <h2>Rekap Per Hari</h2>
             <div class="panel">
               <table class="table table-rekap">
@@ -158,7 +170,7 @@
             <div class="panel">
               <table class="table table-detail">
                 <thead>
-                  <tr><th>Tanggal</th><th>Karyawan</th><th>Jenis</th><th>Kategori</th><th>Keterangan</th><th>Nominal</th></tr>
+                  <tr><th>Tanggal</th><th>Karyawan</th><th>Jenis</th><th>Kategori</th><th>Keterangan</th><th>Metode</th><th>Nominal</th></tr>
                 </thead>
                 <tbody id="lap-detail"></tbody>
               </table>
@@ -242,6 +254,7 @@
               <strong class="card-value" id="kas-selisih">Rp 0</strong>
             </div>
           </div>
+          <p class="kas-metode" id="kas-metode"></p>
 
           <div class="form-card kas-form">
             <form id="form-kas" autocomplete="off">
@@ -276,6 +289,22 @@
                 <div class="field">
                   <label for="kas-nominal">Nominal (Rp)</label>
                   <input type="text" id="kas-nominal" class="input-rupiah" inputmode="numeric" autocomplete="off" placeholder="Rp 0" required>
+                </div>
+                <div class="field">
+                  <label for="kas-metode-bayar">Metode Bayar</label>
+                  <select id="kas-metode-bayar" required>
+                    <option value="Tunai">Tunai</option>
+                    <option value="QRIS">QRIS</option>
+                    <option value="Transfer">Transfer</option>
+                  </select>
+                </div>
+                <div class="field" id="kas-diterima-wrap">
+                  <label for="kas-diterima">Uang Diterima (Rp)</label>
+                  <input type="text" id="kas-diterima" class="input-rupiah" inputmode="numeric" autocomplete="off" placeholder="Rp 0">
+                </div>
+                <div class="field" id="kas-kembalian-wrap">
+                  <label for="kas-kembalian">Kembalian</label>
+                  <input type="text" id="kas-kembalian" class="input-kembalian" readonly tabindex="-1" placeholder="Rp 0">
                 </div>
               </div>
               <div class="form-actions">
@@ -354,6 +383,14 @@
                   <label for="srv-dp">DP (Rp)</label>
                   <input type="text" id="srv-dp" class="input-rupiah" inputmode="numeric" autocomplete="off" placeholder="Rp 0">
                 </div>
+                <div class="field">
+                  <label for="srv-metode">Metode Bayar DP</label>
+                  <select id="srv-metode">
+                    <option value="Tunai">Tunai</option>
+                    <option value="QRIS">QRIS</option>
+                    <option value="Transfer">Transfer</option>
+                  </select>
+                </div>
               </div>
               <div class="form-actions">
                 <button type="submit" class="btn btn-primary">
@@ -394,6 +431,24 @@
                 <tbody id="lunas-sparepart"></tbody>
               </table>
               <div class="srv-ringkasan" id="lunas-ringkasan"></div>
+              <div class="form-grid srv-bayar">
+                <div class="field">
+                  <label for="lunas-metode" id="lunas-metode-label">Metode Bayar</label>
+                  <select id="lunas-metode">
+                    <option value="Tunai">Tunai</option>
+                    <option value="QRIS">QRIS</option>
+                    <option value="Transfer">Transfer</option>
+                  </select>
+                </div>
+                <div class="field" id="lunas-diterima-wrap">
+                  <label for="lunas-diterima">Uang Diterima (Rp)</label>
+                  <input type="text" id="lunas-diterima" class="input-rupiah" inputmode="numeric" autocomplete="off" placeholder="Rp 0">
+                </div>
+                <div class="field" id="lunas-kembalian-wrap">
+                  <label for="lunas-kembalian">Kembalian</label>
+                  <input type="text" id="lunas-kembalian" class="input-kembalian" readonly tabindex="-1" placeholder="Rp 0">
+                </div>
+              </div>
               <div class="form-actions">
                 <button type="submit" class="btn btn-primary">Simpan Pelunasan &amp; Serahkan Barang</button>
                 <button type="button" class="btn btn-secondary" id="lunas-tutup">Tutup</button>
@@ -414,6 +469,14 @@
                 <div class="field span-2">
                   <label for="batal-alasan">Alasan</label>
                   <input type="text" id="batal-alasan" placeholder="Contoh: pelanggan tidak jadi, biaya terlalu mahal">
+                </div>
+                <div class="field" id="batal-metode-wrap">
+                  <label for="batal-metode" id="batal-metode-label">Dikembalikan Lewat</label>
+                  <select id="batal-metode">
+                    <option value="Tunai">Tunai</option>
+                    <option value="QRIS">QRIS</option>
+                    <option value="Transfer">Transfer</option>
+                  </select>
                 </div>
               </div>
               <div class="srv-ringkasan" id="batal-ringkasan"></div>
